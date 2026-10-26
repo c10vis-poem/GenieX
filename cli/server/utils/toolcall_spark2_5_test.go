@@ -83,6 +83,16 @@ func TestSpark25ToolCallScanner(t *testing.T) {
 			wantCalls: []toolCallFn{{Name: "f", Arguments: `{"label":"<arg_key>x</arg_key> <tool_call> &amp;"}`}},
 		},
 		{
+			name:     "arg value close tag in raw value falls back to text",
+			resp:     `<tool_call>f<arg_key>label</arg_key><arg_value>before </arg_value> after</arg_value></tool_call>`,
+			wantText: `<tool_call>f<arg_key>label</arg_key><arg_value>before </arg_value> after</arg_value></tool_call>`,
+		},
+		{
+			name:     "call close tag in raw value falls back to text",
+			resp:     `<tool_call>write<arg_key>content</arg_key><arg_value>close with </tool_call> tag</arg_value></tool_call>`,
+			wantText: `<tool_call>write<arg_key>content</arg_key><arg_value>close with </tool_call> tag</arg_value></tool_call>`,
+		},
+		{
 			name:      "JSON-looking string does not become a nested call",
 			resp:      `<tool_call>f<arg_key>label</arg_key><arg_value>{"name":"nested","arguments":{}}</arg_value></tool_call>`,
 			wantCalls: []toolCallFn{{Name: "f", Arguments: `{"label":"{\"name\":\"nested\",\"arguments\":{}}"}`}},
