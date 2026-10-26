@@ -51,6 +51,7 @@ def test_model_manager_pull(cached, model):
     assert Path(paths.model_path).is_file(), f'{model.id}: model_path missing: {paths.model_path}'
 
 
+@pytest.mark.nightly
 def test_model_manager_pull_mtp(llama_cpp_mtp_paths):
     for name, paths in llama_cpp_mtp_paths.items():
         assert Path(paths.model_path).is_file(), f'mtp-{name}: model_path missing: {paths.model_path}'
@@ -459,6 +460,7 @@ def test_llm_generate_input_embd_dimension_mismatch(llama_cpp_llm_paths, device_
 
 
 @pytest.mark.llm
+@pytest.mark.nightly
 @pytest.mark.parametrize('device_map', ['npu'])
 @pytest.mark.skipif(_IS_QCS9075M, reason='draft-mtp not yet supported upstream on QCS9075M / HTP')
 def test_mtp_multi_turn(llama_cpp_mtp_paths, device_map):

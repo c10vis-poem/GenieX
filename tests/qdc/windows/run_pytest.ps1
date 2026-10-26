@@ -42,13 +42,14 @@ $env:HF_HUB_DOWNLOAD_CONCURRENCY = "1"
 
 & "$PY_DIR\python.exe" -c "import geniex; geniex.init(); geniex.deinit()" 2>&1
 
+$MARK = (Get-Content "$ROOT\pytest-markexpr.txt" -Raw).Trim()
 Set-Location "$ROOT\tests"
 # One xdist worker: a native abort fails that case and the run continues on a fresh worker.
 & "$PY_DIR\python.exe" -m pytest . -v -n 1 --max-worker-restart=100 `
     --tb=short `
     --junitxml="$LOG\device-results.xml" `
     --report-log="$LOG\device-report.log" `
-    -m "llama_cpp or qairt" 2>&1
+    -m "$MARK" 2>&1
 
 Stop-Transcript | Out-Null
 exit 0

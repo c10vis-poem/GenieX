@@ -1,8 +1,9 @@
 name: Test
 
-# Top-level test entry point for tag pushes and manual reruns. Builds the SDK
-# once, then fans out to _unit-test.yml (test-go, test-python, test-sdk-ci) and
-# _qdc-test.yml (test-sdk-qdc). Tag pushes get the same coverage as PR check.
+# Top-level test entry point for the nightly main run, tag pushes and manual
+# reruns. Builds the SDK once, then fans out to _unit-test.yml (test-go,
+# test-python, test-sdk-ci) and _qdc-test.yml (test-sdk-qdc, full tier — the
+# linux leg, gpt-oss / MTP and CPU cells that PR check's smoke tier skips).
 #
 # Independent of release.yml: both fire on the same tag push as siblings —
 # failures here surface on the tag commit and never gate release.yml's
@@ -12,6 +13,8 @@ name: Test
 # its own build-sdk artifact instead of triggering this workflow.
 
 on:
+  schedule:
+    - cron: "0 18 * * *"
   push:
     tags:
       # Coarse glob; the `gate` job below applies a SemVer regex so alpha /
@@ -99,3 +102,4 @@ jobs:
     secrets: inherit
     with:
       gate_on_changed_files: false
+      tier: full

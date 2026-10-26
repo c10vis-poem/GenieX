@@ -1,8 +1,11 @@
 name: QDC Test
 
 # On-device pytest, one leg per platform. Callers supply the sdk-<platform>
-# artifacts; this workflow never builds. Called by test.yml (tag / dispatch)
-# and pr-check.yml (change-gated).
+# artifacts; this workflow never builds. Called by test.yml (nightly / tag /
+# dispatch, tier=full) and pr-check.yml (change-gated, tier=pr).
+#
+# tier=pr is the smoke set: windows + android only (QCS9075M queues for up to
+# 2h), no CPU cells (test-sdk-ci covers them), no `nightly`-marked models.
 
 on:
   workflow_call:
@@ -12,6 +15,11 @@ on:
         required: false
         type: boolean
         default: true
+      tier:
+        description: "pr = smoke subset on the in_pr legs; full = everything."
+        required: false
+        type: string
+        default: full
 
 permissions:
   contents: read
@@ -21,7 +29,7 @@ jobs:
   qdc:
     name: ${{ matrix.platform }} (${{ matrix.device }})
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: ${{ inputs.tier == 'pr' && 90 || 345 }}
     strategy:
       fail-fast: false
       matrix:
@@ -29,12 +37,15 @@ jobs:
           - platform: linux
             device: QCS9075M
             artifact: sdk-linux-arm64
+            in_pr: false
           - platform: windows
             device: SC8480XP
             artifact: sdk-windows-arm64
+            in_pr: true
           - platform: android
             device: SM8850
             artifact: sdk-android-arm64
+            in_pr: true
     env:
       QDC_API_KEY: ${{ secrets.QDC_API_KEY }}
     steps:
@@ -63,10 +74,15 @@ jobs:
           # invoking the dispatcher with an empty key and failing every cell.
           HAS_QDC_API_KEY: ${{ secrets.QDC_API_KEY != '' }}
           PLATFORM: ${{ matrix.platform }}
+          TIER: ${{ inputs.tier }}
+          IN_PR: ${{ matrix.in_pr }}
         run: |
           set -euo pipefail
           if [ "$HAS_QDC_API_KEY" != "true" ]; then
             echo "::notice::QDC_API_KEY is unavailable; skipping $PLATFORM"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ "$TIER" = "pr" ] && [ "$IN_PR" != "true" ]; then
+            echo "::notice::$PLATFORM runs in the nightly full tier only"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           elif [ "$GATE" = "true" ] && [ "$ANY" != "true" ]; then
             echo "No QDC-relevant path changes — skipping $PLATFORM"
@@ -93,11 +109,17 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
           DEVICE: ${{ matrix.device }}
+          TIER: ${{ inputs.tier }}
+          # QDC reservation seconds; full matches bench's 330 min under the 6h runner cap.
+          JOB_TIMEOUT: ${{ inputs.tier == 'pr' && 4800 || 19800 }}
+        # exec so a runner cancel's SIGINT reaches python, which aborts the QDC job.
         run: >
-          python tests/qdc/run_qdc_pytest.py
+          exec python tests/qdc/run_qdc_pytest.py
           --pkg-dir pkg-geniex
           --platform "$PLATFORM"
           --device "$DEVICE"
+          --tier "$TIER"
+          --job-timeout "$JOB_TIMEOUT"
           --logs-dir qdc-logs
 
       - name: Upload QDC device logs

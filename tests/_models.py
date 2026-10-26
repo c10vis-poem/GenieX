@@ -21,6 +21,7 @@ class TestModel:
     hub: str
     devices: tuple[str, ...]
     quality_max_new_tokens: int | None
+    nightly: bool
 
     @property
     def short_name(self) -> str:
@@ -49,6 +50,7 @@ def _load() -> dict[str, tuple[TestModel, ...]]:
                     hub=entry.get('hub', 'auto'),
                     devices=tuple(entry['devices']),
                     quality_max_new_tokens=entry.get('quality_max_new_tokens'),
+                    nightly=entry.get('nightly', False),
                 )
             )
         roles[role] = tuple(models)
@@ -62,13 +64,17 @@ def primary(role: str) -> TestModel:
     return MODELS[role][0]
 
 
+def _marks(model: TestModel) -> tuple:
+    return (pytest.mark.nightly,) if model.nightly else ()
+
+
 def matrix(role: str) -> list:
     return [
-        pytest.param(model, device, id=f'{model.short_name}-{device}')
+        pytest.param(model, device, id=f'{model.short_name}-{device}', marks=_marks(model))
         for model in MODELS[role]
         for device in model.devices
     ]
 
 
 def pull_cells(*roles: str) -> list:
-    return [pytest.param(model, id=model.short_name) for role in roles for model in MODELS[role]]
+    return [pytest.param(model, id=model.short_name, marks=_marks(model)) for role in roles for model in MODELS[role]]

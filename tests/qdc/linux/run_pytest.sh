@@ -31,13 +31,14 @@ python3 -c "import geniex; geniex.init(); geniex.deinit()" || {
     exit 1
 }
 
+MARK=$(cat "$TC/pytest-markexpr.txt")
 cd "$TC/tests"
 # One xdist worker: a native abort fails that case and the run continues on a fresh worker.
 python3 -m pytest . -v -n 1 --max-worker-restart=100 \
     --tb=short \
     --junitxml="$LOG/device-results.xml" \
     --report-log="$LOG/device-report.log" \
-    -m "llama_cpp or qairt" \
+    -m "$MARK" \
     --deselect "test_llama_cpp.py::test_llm_greedy_is_deterministic[Qwen3-4B-GGUF-cpu]" \
     --deselect "test_llama_cpp.py::test_vlm_multi_turn[gemma-4-E2B-it-GGUF-cpu]" \
     --deselect "test_llama_cpp.py::test_llm_quality_keywords[The planet closest to the Sun is-Mercury-Qwen3-4B-GGUF-cpu]" 2>&1

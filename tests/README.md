@@ -59,6 +59,7 @@ The conftest auto-tags items by location and `device_map` value:
 | `device_hybrid` | parametrised with `device_map='hybrid'`                  |
 | `snapdragon`    | any `device_map` in {`gpu`, `npu`, `hybrid`} cell (auto) |
 | `llm` / `vlm`   | applied per-test via `@pytest.mark.llm` / `.vlm`         |
+| `nightly`       | `"nightly": true` models + MTP; excluded from QDC PR tier |
 
 `snapdragon`-marked and `qairt` items skip automatically unless
 `GENIEX_DEVICE_TEST=1` is set **and** the host is a Snapdragon machine.
@@ -85,19 +86,20 @@ GENIEX_DEVICE_TEST=1 pytest tests
 every entry names the `devices` it runs on, so adding a model to the whole
 behavioural suite is a manifest edit. Loader: `tests/_models.py`.
 
-| Role                   | Model | Devices |
-|------------------------|-------|---------|
-| `llama_cpp_llm`        | `unsloth/Qwen3-4B-GGUF` Q4_0 | cpu, gpu, npu |
-| `llama_cpp_llm`        | `unsloth/gpt-oss-20b-GGUF` Q4_0 | hybrid |
-| `llama_cpp_vlm`        | `unsloth/gemma-4-E2B-it-GGUF` Q4_0 + mmproj-F16 | cpu, gpu, npu |
-| `llama_cpp_mtp_target` | `google/gemma-4-26B-A4B-it-qat-q4_0-gguf` | npu |
-| `llama_cpp_mtp_draft`  | `RachidAR/gemma-4-...-assistant-q4_0-gguf` | — (paired with the target) |
-| `qairt_llm`            | `qualcomm/Qwen3-4B` | npu |
-| `qairt_vlm`            | `qualcomm/Qwen2.5-VL-7B-Instruct` | npu |
+| Role                   | Model | Devices | QDC tier |
+|------------------------|-------|---------|----------|
+| `llama_cpp_llm`        | `unsloth/Qwen3-4B-GGUF` Q4_0 | cpu, gpu, npu | pr |
+| `llama_cpp_llm`        | `unsloth/gpt-oss-20b-GGUF` Q4_0 | hybrid | nightly |
+| `llama_cpp_vlm`        | `unsloth/gemma-4-E2B-it-GGUF` Q4_0 + mmproj-F16 | cpu, gpu, npu | pr |
+| `llama_cpp_mtp_target` | `google/gemma-4-26B-A4B-it-qat-q4_0-gguf` | npu | nightly |
+| `llama_cpp_mtp_draft`  | `RachidAR/gemma-4-...-assistant-q4_0-gguf` | — (paired with the target) | nightly |
+| `qairt_llm`            | `qualcomm/Qwen3-4B` | npu | pr |
+| `qairt_vlm`            | `qualcomm/Qwen2.5-VL-7B-Instruct` | npu | pr |
 
 Entry fields: `id`, `precision`, `hub` (default `auto`), `devices`,
 `quality_max_new_tokens` (per-model budget for the keyword cells),
-`env_override` (an env var that replaces `id`).
+`env_override` (an env var that replaces `id`), `nightly` (marks every cell of
+the entry `nightly`; use it for models whose download dominates a PR run).
 
 llama_cpp and QAIRT share the same LLM/VLM models so a keyword-quality
 divergence traces to backend / quantization rather than model identity.
@@ -128,27 +130,34 @@ The project splits into two test workflows:
 
 - **Unit Test** ([`_unit-test.yml`](../.github/workflows/_unit-test.yml)) — runs on
   every PR via [`pr-check.yml`](../.github/workflows/pr-check.yml). Covers
-  `test-go`, `test-python`, and `test-sdk-ci` (`-m api`) on
-  linux-arm64 + windows-arm64 GitHub runners; no QDC hardware.
-- **QDC Test** ([`_qdc-test.yml`](../.github/workflows/_qdc-test.yml))
-  — runs on `workflow_dispatch` and on `v*` tag push (via
-  [`test.yml`](../.github/workflows/test.yml)). Not on PR. One leg per
-  platform; each leg runs the full plugin set (`-m "llama_cpp or qairt"`):
+  `test-go`, `test-python`, and `test-sdk-ci`
+  (`-m "api or (llama_cpp and device_cpu)"`) on GitHub runners; no QDC hardware.
+- **QDC Test** ([`_qdc-test.yml`](../.github/workflows/_qdc-test.yml)) — one leg
+  per platform, in two tiers:
+
+  | Tier | Trigger | Legs | Marker expression |
+  |------|---------|------|-------------------|
+  | `pr` | [`pr-check.yml`](../.github/workflows/pr-check.yml), non-draft, change-gated | windows, android | `(llama_cpp or qairt) and not nightly and not device_cpu` |
+  | `full` | [`test.yml`](../.github/workflows/test.yml): nightly on main, `v*` tags, dispatch | linux, windows, android | `llama_cpp or qairt` |
 
   | Platform | Device   | Framework   |
   |----------|----------|-------------|
   | Linux    | QCS9075M | BASH        |
   | Windows  | SC8480XP | POWERSHELL  |
+  | Android  | SM8850   | APPIUM      |
 
-Each platform's entry script lives under [qdc/](qdc/): Linux uses the
-image's preinstalled python 3.12; Windows bootstraps python.org's arm64
-embed zip. Both reuse
+  The PR tier skips the CPU cells (`test-sdk-ci` already runs them), the
+  `nightly` models (their download was most of a PR run), and the Linux leg
+  (QCS9075M queues for up to 2 h). A cancelled run aborts its QDC job so the
+  key's pending-job slot frees up.
+
+Each platform's entry script lives under [qdc/](qdc/) and reads the marker
+expression from `pytest-markexpr.txt`, which
+[run_qdc_pytest.py](qdc/run_qdc_pytest.py) writes into the artifact. Linux uses
+the image's preinstalled python 3.12; Windows bootstraps python.org's arm64
+embed zip; Android pushes a Termux-derived python over adb. All reuse
 [sdk/benchmark/qdc/_qdc.py](../sdk/benchmark/qdc/_qdc.py) for submit /
 poll / log-collect.
-
-Android (SM8850) is not wired yet — QDC's SM8850 image has neither
-python nor termux preinstalled, so it needs a CLI-driven harness that is
-out of scope for this iteration.
 
 ## Boundary with `bindings/python/tests/`
 

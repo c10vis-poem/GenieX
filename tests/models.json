@@ -12,7 +12,8 @@
         "precision": "Q4_0",
         "hub": "hf",
         "devices": ["hybrid"],
-        "quality_max_new_tokens": 1024
+        "quality_max_new_tokens": 1024,
+        "nightly": true
       }
     ],
     "llama_cpp_vlm": [

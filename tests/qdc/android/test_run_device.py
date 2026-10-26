@@ -10,6 +10,7 @@ from pathlib import Path
 import android_deploy
 
 PAYLOAD = Path(__file__).parents[1] / 'payload'
+MARK = (Path(__file__).parents[1] / 'pytest-markexpr.txt').read_text().strip()
 
 PYTEST_ARGS = [
     '.',
@@ -17,7 +18,7 @@ PYTEST_ARGS = [
     '-s',
     '--tb=short',
     '-m',
-    'llama_cpp or qairt',
+    MARK,
 ]
 
 # A DSP abort here drops the phone off adb for the rest of the QDC job, so run it last.
@@ -27,7 +28,7 @@ LAST = 'vlm and GGUF and npu'
 def _collect(expr: str) -> list[str]:
     out = android_deploy.adb_shell(
         f'cd {android_deploy.DEV_TESTS} && {android_deploy.device_env()} '
-        f"{android_deploy.DEV_PY}/bin/python3 -m pytest --collect-only -q -m 'llama_cpp or qairt' -k '{expr}'",
+        f"{android_deploy.DEV_PY}/bin/python3 -m pytest --collect-only -q -m '{MARK}' -k '{expr}'",
         check=False,
     ).stdout
     return [ln.strip() for ln in out.splitlines() if '.py::' in ln]
