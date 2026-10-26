@@ -230,6 +230,7 @@ type LlmApplyChatTemplateInput struct {
 	Tools               string
 	EnableThink         bool
 	AddGenerationPrompt bool
+	ParallelToolCalls   bool
 }
 
 func (lati LlmApplyChatTemplateInput) toCPtr() *C.geniex_LlmApplyChatTemplateInput {
@@ -238,6 +239,7 @@ func (lati LlmApplyChatTemplateInput) toCPtr() *C.geniex_LlmApplyChatTemplateInp
 		tools:                 cStringIfSet(lati.Tools),
 		enable_thinking:       C.bool(lati.EnableThink),
 		add_generation_prompt: C.bool(lati.AddGenerationPrompt),
+		parallel_tool_calls:   C.bool(lati.ParallelToolCalls),
 	}
 	cPtr.messages, cPtr.message_count = llmChatMessages(lati.Messages).toCPtr()
 	return cPtr

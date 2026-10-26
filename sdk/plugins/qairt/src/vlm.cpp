@@ -177,6 +177,10 @@ int32_t QairtVlm::apply_chat_template(
     if (!pipeline_) return GENIEX_ERROR_COMMON_NOT_INITIALIZED;
     if (!input || !output) return GENIEX_ERROR_COMMON_INVALID_INPUT;
     if (!input->messages || input->message_count <= 0) return GENIEX_ERROR_COMMON_INVALID_INPUT;
+    if (!input->parallel_tool_calls && qairt::has_tools(input->tools)) {
+        GENIEX_LOG_ERROR("qairt does not support parallel_tool_calls=false with tools");
+        return GENIEX_ERROR_COMMON_PARAM_NOT_SUPPORTED;
+    }
 
     // Convert C API messages → geniex::ChatMessage
     std::vector<ChatMessage> messages;

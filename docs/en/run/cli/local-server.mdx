@@ -225,7 +225,9 @@ The examples below reuse this `client`. Replace the `model` value with a model y
 
 ### **Streaming**
 
-Print each delta as it arrives:
+Chat streaming uses `Content-Type: text/event-stream` and `Cache-Control: no-cache`. Every normal chunk, including the finish and optional usage chunks, carries the same `id`, `created` (Unix seconds), and `model` for that response.
+
+A successful stream ends with a finish chunk, an optional usage chunk, then `data: [DONE]`. Set `stream_options={"include_usage": True}` to request usage; that final usage chunk has an empty `choices` array, so check it before accessing `choices[0]`:
 
 ```python python
 stream = client.chat.completions.create(
@@ -236,14 +238,32 @@ stream = client.chat.completions.create(
     max_tokens=256,
     temperature=0.7,
     stream=True,
+    stream_options={"include_usage": True},
 )
 
 for chunk in stream:
+    if not chunk.choices:
+        print("\nusage:", chunk.usage)
+        continue
     delta = chunk.choices[0].delta.content
     if delta:
         print(delta, end="", flush=True)
 print()
 ```
+
+Illustrative SSE body (IDs, timestamps, model names, and token counts vary by request):
+
+```text
+data: {"id":"chatcmpl-0123456789abcdef","created":1793000000,"model":"my-model","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-0123456789abcdef","created":1793000000,"model":"my-model","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-0123456789abcdef","created":1793000000,"model":"my-model","object":"chat.completion.chunk","choices":[],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}
+
+data: [DONE]
+```
+
+Intermediate chunks have `finish_reason: null`; a tool-call response ends with `finish_reason: "tool_calls"` instead of `"stop"`. Generation errors emit an error event and terminate without the successful finish/usage/`[DONE]` sequence.
 
 ### **Chat completion (non-streaming)**
 
@@ -303,9 +323,17 @@ Function/tool calling uses the standard OpenAI `tools` schema. The server extrac
 
 The example below walks through a two-step agentic loop with `qualcomm/Qwen3-VL-4B-Instruct`: (1) the VLM identifies a landmark from a photo and calls `web_search`, (2) you execute the search locally and feed the results back so the VLM writes a grounded reply.
 
+The server can parse multiple tool calls in one assistant turn. Process every entry in `message.tool_calls`; in streaming responses, track each call by `delta.tool_calls[].index` (0, 1, …), and return one `role: "tool"` message per call with its matching `tool_call_id`. GenieX returns calls but does not execute your tools.
+
 <Note>
-Only one tool call per assistant turn is parsed — parallel tool calls in a single response are not supported.
+`parallel_tool_calls` defaults to `true`. For supported `llama_cpp` LLM/VLM templates, `false` limits tool-call grammar to at most one call per response; `true` permits the template's native multi-call capability without forcing tool use. This controls generation, not whether your application executes tools sequentially or concurrently.
+
+The limit is template-dependent: in the pinned llama.cpp, Kimi K3 and Functionary v3.2 may still generate multiple calls with `false`. GenieX forwards the option but does not add a separate cutoff for these templates.
 </Note>
+
+<Warning>
+QAIRT does not support single-call grammar enforcement and rejects `parallel_tool_calls: false` when tools are supplied. Leave the default `true` for QAIRT tool requests.
+</Warning>
 
 <Note>
 Two Qwen3-VL specifics for reliable tool calls:
@@ -373,27 +401,30 @@ first = client.chat.completions.create(
     max_tokens=512,
     extra_body={"enable_think": False},
 )
-call = first.choices[0].message.tool_calls[0]
-print("finish_reason:", first.choices[0].finish_reason)  # -> "tool_calls"
-print("call:", call.function.name, call.function.arguments)
+message = first.choices[0].message
+print("finish_reason:", first.choices[0].finish_reason)
 
-# Step 2 - run the tool, feed the result back as a fresh text-only conversation.
-result = web_search(**json.loads(call.function.arguments))
+if not message.tool_calls:
+    print(message.content)
+else:
+    # Step 2 - run every returned call, then feed the results back as text.
+    followup = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "Summarize travel tips using the search results below."},
+        message,
+    ]
+    for call in message.tool_calls:
+        print("call:", call.function.name, call.function.arguments)
+        result = web_search(**json.loads(call.function.arguments))
+        followup.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)})
 
-followup = [
-    {"role": "system", "content": system_prompt},
-    {"role": "user", "content": "Summarize travel tips using the search results below."},
-    first.choices[0].message,
-    {"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)},
-]
-
-final = client.chat.completions.create(
-    model="qualcomm/Qwen3-VL-4B-Instruct",
-    messages=followup,
-    max_tokens=256,
-    extra_body={"enable_think": False},
-)
-print(final.choices[0].message.content)
+    final = client.chat.completions.create(
+        model="qualcomm/Qwen3-VL-4B-Instruct",
+        messages=followup,
+        max_tokens=256,
+        extra_body={"enable_think": False},
+    )
+    print(final.choices[0].message.content)
 ```
 
 Output (grounded on the live DuckDuckGo results — the exact prose varies with what the web returns that day):

@@ -40,6 +40,7 @@ go_cgo_test(
     srcs = [
         "chat_messages_test.go",
         "chat_response_test.go",
+        "chat_sse_protocol_test.go",
         "chat_stream_test.go",
         "chat_test.go",
         "completion_test.go",

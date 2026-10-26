@@ -171,7 +171,7 @@ func TestTokenEventConsumers(t *testing.T) {
 		dataCh <- "original token"
 		close(dataCh)
 		profile := geniex_sdk.ProfileData{StopReason: "eos"}
-		streamPlainText(c, dataCh, func() error { return nil }, false, &profile, class)
+		streamPlainText(c, dataCh, func() error { return nil }, false, &profile, class, "test-model")
 		choices := sseDeltas(t, w.Body.String())
 		wantChoices := 1 // terminal chunk only for internal events
 		if tc.emit {

@@ -336,6 +336,7 @@ static char* build_llm_accuracy_prompt(geniex_LLM* llm, const options_t* o, cons
     tin.message_count         = nm;
     tin.enable_thinking       = o->enable_thinking;
     tin.add_generation_prompt = true;
+    tin.parallel_tool_calls   = true;
 
     int32_t rc = geniex_llm_apply_chat_template(llm, &tin, &tout);
     if (rc != GENIEX_SUCCESS) {
@@ -501,8 +502,9 @@ static char* build_vlm_prompt(geniex_VLM* vlm, const options_t* o, const char* b
     geniex_VlmApplyChatTemplateOutput tout;
     memset(&tin, 0, sizeof(tin));
     memset(&tout, 0, sizeof(tout));
-    tin.messages      = &msg;
-    tin.message_count = 1;
+    tin.messages            = &msg;
+    tin.message_count       = 1;
+    tin.parallel_tool_calls = true;
 
     int32_t rc = geniex_vlm_apply_chat_template(vlm, &tin, &tout);
     if (rc != GENIEX_SUCCESS) {
@@ -561,9 +563,10 @@ static char* build_vlm_accuracy_prompt(geniex_VLM* vlm, const options_t* o, cons
     geniex_VlmApplyChatTemplateOutput tout;
     memset(&tin, 0, sizeof(tin));
     memset(&tout, 0, sizeof(tout));
-    tin.messages        = messages;
-    tin.message_count   = nm;
-    tin.enable_thinking = o->enable_thinking;
+    tin.messages            = messages;
+    tin.message_count       = nm;
+    tin.enable_thinking     = o->enable_thinking;
+    tin.parallel_tool_calls = true;
 
     int32_t rc = geniex_vlm_apply_chat_template(vlm, &tin, &tout);
     if (nm > 1) free(messages[0].contents); /* the system_contents calloc above */

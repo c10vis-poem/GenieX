@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/openai/openai-go/v3"
@@ -34,6 +35,9 @@ type streamChoice struct {
 }
 
 type streamChunk struct {
+	ID      string                  `json:"id"`
+	Created int64                   `json:"created"`
+	Model   string                  `json:"model"`
 	Object  string                  `json:"object"`
 	Choices []streamChoice          `json:"choices"`
 	Usage   *openai.CompletionUsage `json:"usage,omitempty"`
@@ -41,6 +45,17 @@ type streamChunk struct {
 }
 
 const streamChunkObject = "chat.completion.chunk"
+
+func newStreamWriter(c *gin.Context, model string) func(streamChunk) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	id := fmt.Sprintf("chatcmpl-%016x", rand.Uint64())
+	created := time.Now().Unix()
+	return func(chunk streamChunk) {
+		chunk.ID, chunk.Created, chunk.Model = id, created, model
+		c.SSEvent("", chunk)
+	}
+}
 
 func tokenChunk(text string, reasoning bool) streamChunk {
 	delta := streamDelta{Role: string(openai.MessageRoleAssistant)}
@@ -83,13 +98,14 @@ func toolCallChunk(index int, call openai.ChatCompletionMessageFunctionToolCallF
 }
 
 // profile is read only after wait() returns, when generation has filled it.
-func streamPlainText(c *gin.Context, dataCh <-chan string, wait func() error, includeUsage bool, profile *geniex_sdk.ProfileData, class tokenClass) {
+func streamPlainText(c *gin.Context, dataCh <-chan string, wait func() error, includeUsage bool, profile *geniex_sdk.ProfileData, class tokenClass, model string) {
+	send := newStreamWriter(c, model)
 	c.Stream(func(w io.Writer) bool {
 		r, ok := <-dataCh
 		if ok {
 			ev := class(r)
 			if ev.Kind == thinkfsm.Content || ev.Kind == thinkfsm.Thinking {
-				c.SSEvent("", tokenChunk(ev.Text, ev.Kind == thinkfsm.Thinking))
+				send(tokenChunk(ev.Text, ev.Kind == thinkfsm.Thinking))
 			}
 			return true
 		}
@@ -101,9 +117,9 @@ func streamPlainText(c *gin.Context, dataCh <-chan string, wait func() error, in
 			return false
 		}
 		logProfile(*profile)
-		c.SSEvent("", finishChunk(mapFinishReason(profile.StopReason)))
+		send(finishChunk(mapFinishReason(profile.StopReason)))
 		if includeUsage {
-			c.SSEvent("", usageChunk(profile2Usage(*profile), profile2Timings(*profile)))
+			send(usageChunk(profile2Usage(*profile), profile2Timings(*profile)))
 		}
 		c.SSEvent("", "[DONE]")
 		return false
@@ -112,16 +128,17 @@ func streamPlainText(c *gin.Context, dataCh <-chan string, wait func() error, in
 
 // Streams the text that cannot be part of a tool call as it arrives, and each
 // tool call as soon as it is complete.
-func streamToolCall(c *gin.Context, dataCh <-chan string, wait func() error, includeUsage bool, profile *geniex_sdk.ProfileData, class tokenClass, tools string) {
+func streamToolCall(c *gin.Context, dataCh <-chan string, wait func() error, includeUsage bool, profile *geniex_sdk.ProfileData, class tokenClass, tools string, model string) {
+	send := newStreamWriter(c, model)
 	parser := utils.NewToolCallParser(utils.ToolParameterTypesFromTools(tools))
 	sent := 0 // the delta index, which has to keep rising across chunks
 	write := func(events []utils.ToolCallEvent) {
 		for _, ev := range events {
 			switch ev.Kind {
 			case thinkfsm.Content, thinkfsm.Thinking:
-				c.SSEvent("", tokenChunk(ev.Text, ev.Kind == thinkfsm.Thinking))
+				send(tokenChunk(ev.Text, ev.Kind == thinkfsm.Thinking))
 			case thinkfsm.ToolCall:
-				c.SSEvent("", toolCallChunk(sent, ev.Call))
+				send(toolCallChunk(sent, ev.Call))
 				sent++
 			}
 		}
@@ -146,9 +163,9 @@ func streamToolCall(c *gin.Context, dataCh <-chan string, wait func() error, inc
 		if sent > 0 {
 			finishReason = "tool_calls"
 		}
-		c.SSEvent("", finishChunk(finishReason))
+		send(finishChunk(finishReason))
 		if includeUsage {
-			c.SSEvent("", usageChunk(profile2Usage(*profile), profile2Timings(*profile)))
+			send(usageChunk(profile2Usage(*profile), profile2Timings(*profile)))
 		}
 		c.SSEvent("", "[DONE]")
 		return false

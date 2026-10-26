@@ -196,6 +196,24 @@ data class VlmContent(
 )
 ```
 
+### Chat-template grammar 与工具调用数
+
+LLM/VLM 的 `applyChatTemplate()` 均返回含 `formattedText` 和可选 `chatTemplateGrammar` 的 `LlmApplyChatTemplateOutput`。两种 wrapper 均支持 `parallelToolCalls: Boolean = true`；`false` 将支持该设置的 llama_cpp template 限制至多一个调用，提供工具时 QAIRT 会拒绝该值。
+
+单调用限制依赖 template 支持。当前 pinned llama.cpp 中的 Kimi K3 和 Functionary v3.2 在 `false` 时仍可能生成多个调用；GenieX 会传递选项，但不会添加独立截断。
+
+生成时必须通过 `SamplerConfig` 显式传递 grammar，调用数限制才会生效：
+
+```kotlin
+val template = llmWrapper.applyChatTemplate(chat, toolsJson, false, parallelToolCalls = false).getOrThrow()
+val config = GenerationConfig(
+    samplerConfig = SamplerConfig(chatTemplateGrammar = template.chatTemplateGrammar),
+)
+llmWrapper.generateStreamFlow(template.formattedText, config = config).collect { /* ... */ }
+```
+
+VLM 同样使用 `parallelToolCalls = false` 并传递 `chatTemplateGrammar`；有媒体输入时保留对应的 image/audio paths。
+
 ### `GenerationConfig`
 
 ```kotlin

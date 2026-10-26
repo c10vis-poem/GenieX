@@ -53,8 +53,19 @@ Each AI capability (LLM, VLM) follows this pattern:
   external fun destroy(handle: Long)
   external fun generate(handle: Long, prompt: String, config: GenerationConfig, cb: LLMTokenCallback): LlmGenerateResult
   external fun stopStream(handle: Long)
-  external fun applyChatTemplate(handle: Long, messages: Array<ChatMessage>, tools: String?, enableThinking: Boolean): LlmApplyChatTemplateOutput
+  external fun applyChatTemplate(
+      handle: Long,
+      messages: Array<ChatMessage>,
+      tools: String?,
+      enableThinking: Boolean,
+      addGenerationPrompt: Boolean = true,
+      parallelToolCalls: Boolean = true
+  ): LlmApplyChatTemplateOutput
   ```
+
+Both `LlmWrapper` and `VlmWrapper` default `parallelToolCalls` to `true`. For supported llama_cpp templates, pass `false` and forward the returned `chatTemplateGrammar` through `SamplerConfig` to cap generation at one tool call; QAIRT rejects `false` when tools are supplied. Rebuild the SDK and AAR together after public C input changes.
+
+The limit is template-dependent: Kimi K3 and Functionary v3.2 in the pinned llama.cpp may still generate multiple calls with `false`. GenieX forwards the option without an additional cutoff.
 
 #### Layer 2: **llm_bridge_jni.cpp** (JNI Bridge)
 

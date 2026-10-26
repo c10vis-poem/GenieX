@@ -10,7 +10,9 @@ import pytest
 from geniex._ffi._types import (
     geniex_ChatTemplateGrammar,
     geniex_GrammarTrigger,
+    geniex_LlmApplyChatTemplateInput,
     geniex_LlmApplyChatTemplateOutput,
+    geniex_VlmApplyChatTemplateInput,
     geniex_VlmApplyChatTemplateOutput,
 )
 from geniex.chat_template import ChatTemplateGrammar, ChatTemplateOutput, GrammarTrigger
@@ -100,6 +102,9 @@ def test_tokenizer_preserves_default_string_and_opt_in_result():
     assert isinstance(result, ChatTemplateOutput)
     assert result.formatted_text == 'prompt'
     assert model.kwargs['tools'] == '[]'
+    assert model.kwargs['parallel_tool_calls'] is True
+    tokenizer.apply_chat_template(messages, parallel_tool_calls=False)
+    assert model.kwargs['parallel_tool_calls'] is False
 
 
 @pytest.mark.parametrize('model_type', [GenieXLLM, GenieXVLM])
@@ -139,6 +144,11 @@ def test_default_sampler_has_no_template_grammar():
 class _FakeLibrary:
     def __init__(self, output_type):
         self.output_type = output_type
+        self.input_type = (
+            geniex_LlmApplyChatTemplateInput
+            if output_type is geniex_LlmApplyChatTemplateOutput
+            else geniex_VlmApplyChatTemplateInput
+        )
         self.buffers = []
         self.freed = []
         self.geniex_free = self.freed.append
@@ -150,6 +160,7 @@ class _FakeLibrary:
         setattr(self, self.apply_name, self._apply)
 
     def _apply(self, _handle, _input, output_ptr):
+        self.parallel_tool_calls = cast(_input, POINTER(self.input_type)).contents.parallel_tool_calls
         output = cast(output_ptr, POINTER(self.output_type)).contents
         text = create_string_buffer(b'formatted prompt')
         grammar, metadata_buffers = _make_grammar_buffers()
@@ -199,6 +210,24 @@ def test_apply_template_error_still_frees_partial_output(monkeypatch):
         model._apply_chat_template([{'role': 'user', 'content': 'hello'}], True, True, None, include_grammar=True)
     model._handle = None
     assert len(library.freed) == 6
+
+
+@pytest.mark.parametrize(
+    ('model_type', 'output_type'),
+    [(GenieXLLM, geniex_LlmApplyChatTemplateOutput), (GenieXVLM, geniex_VlmApplyChatTemplateOutput)],
+)
+@pytest.mark.parametrize('kwargs', [{}, {'parallel_tool_calls': True}, {'parallel_tool_calls': False}])
+def test_parallel_tool_calls_reaches_ffi(monkeypatch, model_type, output_type, kwargs):
+    from geniex import modeling
+
+    library = _FakeLibrary(output_type)
+    monkeypatch.setattr(modeling, 'load_library', lambda: library)
+    model = object.__new__(model_type)
+    model._handle = 1
+    model._meta = None
+    model._apply_chat_template([{'role': 'user', 'content': 'hello'}], True, True, None, **kwargs)
+    model._handle = None
+    assert library.parallel_tool_calls is kwargs.get('parallel_tool_calls', True)
 
 
 def test_apply_template_default_still_returns_text_and_frees_grammar(monkeypatch):

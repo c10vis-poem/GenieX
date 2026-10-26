@@ -27,6 +27,7 @@ class ModelTokenizer:
         enable_thinking: bool | None = None,
         tools: list[dict] | str | None = None,
         include_grammar: bool = False,
+        parallel_tool_calls: bool = True,
     ) -> str | ChatTemplateOutput:
         """Format chat ``messages`` using the loaded model's chat template.
 
@@ -36,6 +37,10 @@ class ModelTokenizer:
         pre-serialised JSON string. Set ``include_grammar=True`` to return a
         :class:`ChatTemplateOutput` whose grammar can be passed explicitly to
         ``generate(chat_template_grammar=...)``; the default remains a string.
+        ``parallel_tool_calls=True`` permits the template's multi-call capability;
+        ``False`` caps supported llama_cpp templates at one call. Kimi K3 and
+        Functionary v3.2 may still permit multiple calls. Pass the returned
+        grammar to ``generate()`` for supported constraints to apply.
 
         ``enable_thinking`` semantics:
 
@@ -80,4 +85,5 @@ class ModelTokenizer:
             enable_thinking=enable_thinking,
             tools=tools_str,
             include_grammar=include_grammar,
+            parallel_tool_calls=parallel_tool_calls,
         )

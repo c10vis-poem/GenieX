@@ -182,7 +182,9 @@ client = OpenAI(
 
 ### **流式（Streaming）**
 
-按 delta 到达顺序逐段打印：
+Chat 流式响应使用 `Content-Type: text/event-stream` 和 `Cache-Control: no-cache`。同一次响应的所有正常 chunk（含 finish 和可选的 usage chunk）具有相同的 `id`、`created`（Unix 秒时间戳）和 `model`。
+
+成功的流依次以 finish chunk、可选的 usage chunk 和 `data: [DONE]` 结束。通过 `stream_options={"include_usage": True}` 请求 usage；最后的 usage chunk 中 `choices` 为空数组，因此访问 `choices[0]` 前必须先判断：
 
 ```python python
 stream = client.chat.completions.create(
@@ -193,14 +195,32 @@ stream = client.chat.completions.create(
     max_tokens=256,
     temperature=0.7,
     stream=True,
+    stream_options={"include_usage": True},
 )
 
 for chunk in stream:
+    if not chunk.choices:
+        print("\nusage:", chunk.usage)
+        continue
     delta = chunk.choices[0].delta.content
     if delta:
         print(delta, end="", flush=True)
 print()
 ```
+
+SSE 响应体示意（ID、时间戳、模型名称和 token 数随请求变化）：
+
+```text
+data: {"id":"chatcmpl-0123456789abcdef","created":1793000000,"model":"my-model","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-0123456789abcdef","created":1793000000,"model":"my-model","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-0123456789abcdef","created":1793000000,"model":"my-model","object":"chat.completion.chunk","choices":[],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}
+
+data: [DONE]
+```
+
+中间 chunk 的 `finish_reason` 为 `null`；工具调用响应的 finish chunk 使用 `"tool_calls"`，而非 `"stop"`。生成错误会返回 error 事件并终止流，不再发送成功时的 finish/usage/`[DONE]` 序列。
 
 ### **Chat completion（非流式）**
 
@@ -260,9 +280,17 @@ print("content:", msg.content)
 
 下面的示例用 `qualcomm/Qwen3-VL-4B-Instruct` 演示两步 agentic 回路：(1) VLM 从照片中识别地标并调用 `web_search`；(2) 本地执行搜索并将结果回传，VLM 基于结果生成带依据的回复。
 
+服务器可在一次助手响应中解析多个工具调用。请遍历 `message.tool_calls` 的所有条目；流式响应按 `delta.tool_calls[].index`（0、1、…）区分调用，并为每个调用回传一条 `role: "tool"` 消息，使用对应的 `tool_call_id`。GenieX 只返回调用，不会执行你的工具。
+
 <Note>
-每次助手响应仅解析一个工具调用——暂不支持单次响应中的并行工具调用。
+`parallel_tool_calls` 默认为 `true`。对支持该设置的 `llama_cpp` LLM/VLM template，`false` 会将工具调用 grammar 限制为每次响应至多一个调用；`true` 允许 template 原生支持的多调用能力，但不强制使用工具。该设置控制生成行为，而非应用执行工具时的串行或并发方式。
+
+限制依赖 template 支持：当前 pinned llama.cpp 中，Kimi K3 和 Functionary v3.2 在 `false` 时仍可能生成多个调用。GenieX 会传递该选项，但不会为这些 template 添加独立截断。
 </Note>
+
+<Warning>
+QAIRT 不支持单调用 grammar 约束，提供工具时会拒绝 `parallel_tool_calls: false`。QAIRT 工具请求请保留默认的 `true`。
+</Warning>
 
 <Note>
 Qwen3-VL 稳定触发工具调用需要注意两点：
@@ -330,27 +358,30 @@ first = client.chat.completions.create(
     max_tokens=512,
     extra_body={"enable_think": False},
 )
-call = first.choices[0].message.tool_calls[0]
-print("finish_reason:", first.choices[0].finish_reason)  # -> "tool_calls"
-print("call:", call.function.name, call.function.arguments)
+message = first.choices[0].message
+print("finish_reason:", first.choices[0].finish_reason)
 
-# 第二步 —— 执行工具，并以纯文本对话把结果回传。
-result = web_search(**json.loads(call.function.arguments))
+if not message.tool_calls:
+    print(message.content)
+else:
+    # 第二步 —— 执行每个返回的调用，并以纯文本回传所有结果。
+    followup = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "Summarize travel tips using the search results below."},
+        message,
+    ]
+    for call in message.tool_calls:
+        print("call:", call.function.name, call.function.arguments)
+        result = web_search(**json.loads(call.function.arguments))
+        followup.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)})
 
-followup = [
-    {"role": "system", "content": system_prompt},
-    {"role": "user", "content": "Summarize travel tips using the search results below."},
-    first.choices[0].message,
-    {"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)},
-]
-
-final = client.chat.completions.create(
-    model="qualcomm/Qwen3-VL-4B-Instruct",
-    messages=followup,
-    max_tokens=256,
-    extra_body={"enable_think": False},
-)
-print(final.choices[0].message.content)
+    final = client.chat.completions.create(
+        model="qualcomm/Qwen3-VL-4B-Instruct",
+        messages=followup,
+        max_tokens=256,
+        extra_body={"enable_think": False},
+    )
+    print(final.choices[0].message.content)
 ```
 
 输出（依赖 DuckDuckGo 实时结果，具体文字随当天返回内容而变化）：

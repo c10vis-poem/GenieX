@@ -254,11 +254,13 @@ struct fmt::formatter<geniex_LlmApplyChatTemplateInput> {
     constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
     auto           format(const geniex_LlmApplyChatTemplateInput& p, fmt::format_context& ctx) const {
         return fmt::format_to(ctx.out(),
-            "LlmApplyChatTemplateInput(messages: {}, message_count: {}, tools: {}, enable_thinking: {})",
+            "LlmApplyChatTemplateInput(messages: {}, message_count: {}, tools: {}, enable_thinking: {}, "
+                      "parallel_tool_calls: {})",
             lp(fmt::ptr(p.messages)),
             lp(p.message_count),
             lp(p.tools),
-            lp(p.enable_thinking));
+            lp(p.enable_thinking),
+            lp(p.parallel_tool_calls));
     }
 };
 
@@ -353,11 +355,13 @@ struct fmt::formatter<geniex_VlmApplyChatTemplateInput> {
     constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
     auto           format(const geniex_VlmApplyChatTemplateInput& p, fmt::format_context& ctx) const {
         return fmt::format_to(ctx.out(),
-            "VlmApplyChatTemplateInput(messages: {}, message_count: {}, tools: {}, enable_thinking: {})",
+            "VlmApplyChatTemplateInput(messages: {}, message_count: {}, tools: {}, enable_thinking: {}, "
+                      "parallel_tool_calls: {})",
             lp(fmt::ptr(p.messages)),
             lp(p.message_count),
             lp(p.tools),
-            lp(p.enable_thinking));
+            lp(p.enable_thinking),
+            lp(p.parallel_tool_calls));
     }
 };
 

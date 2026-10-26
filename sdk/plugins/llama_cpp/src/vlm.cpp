@@ -396,6 +396,7 @@ int32_t LlamaVlm::apply_chat_template(
     tmpl_inputs.messages              = chat_messages;
     tmpl_inputs.add_generation_prompt = true;
     tmpl_inputs.use_jinja             = true;
+    tmpl_inputs.parallel_tool_calls   = input->parallel_tool_calls;
     if (input->tools && strlen(input->tools) > 0) {
         tmpl_inputs.tools = common_chat_tools_parse_oaicompat(common_json::parse(std::string(input->tools)));
     }

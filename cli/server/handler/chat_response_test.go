@@ -169,7 +169,7 @@ func TestChatResponsesFinalizeParserAtEOF(t *testing.T) {
 						dataCh <- token
 					}
 					close(dataCh)
-					streamToolCall(sc, dataCh, func() error { return stop.err }, false, &profile, class, "")
+					streamToolCall(sc, dataCh, func() error { return stop.err }, false, &profile, class, "", "test-model")
 					deltas := sseDeltas(t, sw.Body.String())
 					var streamedContent, streamedReasoning strings.Builder
 					var calls []toolCallDelta
