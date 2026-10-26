@@ -23,6 +23,7 @@
 #include "geniex-proc/tokenizer.h"  // ApplyChatTemplateOptions
 #include "geniex-proc/types.h"      // ChatMessage, Role
 #include "llm/llm_spec_loader.h"    // parseGenieSamplerConfig
+#include "llm/token_generator.h"    // UnsupportedOperationError
 #include "logging.h"
 #include "metadata_utils.h"
 #include "pipeline/llm_pipeline.h"
