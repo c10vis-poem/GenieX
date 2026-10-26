@@ -66,6 +66,8 @@ def _run_multi_turn(llm) -> list[str]:
 def _quality_misses(llm, budget: int) -> list[str]:
     misses = []
     for prompt, expected in LLM_QUALITY_PROMPTS:
+        # Plugins carry KV / chat state across generate(); each prompt is its own conversation.
+        llm.reset()
         formatted = llm.tokenizer.apply_chat_template(
             [{'role': 'user', 'content': prompt}],
             tokenize=False,
@@ -171,6 +173,7 @@ def test_vlm_generate(cached, model, test_image, quality_image, device_map):
             images=[quality_image],
         )
 
+        vlm.reset()
         history = [
             {
                 'role': 'user',

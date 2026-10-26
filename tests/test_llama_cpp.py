@@ -110,6 +110,7 @@ def test_llm_prefix_cache(cached, device_map):
             llm.generate(repeated, max_new_tokens=16, temperature=GREEDY_TEMPERATURE, seed=LLM_QUALITY_SEED)
             for _ in range(3)
         ]
+        llm.reset()
         rollback = [
             llm.generate(
                 _chat_prompt(llm, content), max_new_tokens=8, temperature=GREEDY_TEMPERATURE, seed=LLM_QUALITY_SEED
@@ -135,6 +136,8 @@ def test_llm_prefix_cache(cached, device_map):
 def _quality_misses(llm, budget: int) -> list[str]:
     misses = []
     for prompt, expected in LLM_QUALITY_PROMPTS:
+        # Plugins carry KV / chat state across generate(); each prompt is its own conversation.
+        llm.reset()
         formatted = llm.tokenizer.apply_chat_template(
             [{'role': 'user', 'content': prompt}],
             tokenize=False,
@@ -218,6 +221,8 @@ def test_vlm_generate(cached, model, test_image, quality_image, device_map):
             images=[quality_image],
         )
 
+        # llama_cpp VLM prompts are append-only; a new conversation needs a reset.
+        vlm.reset()
         history = [
             {
                 'role': 'user',
