@@ -7,11 +7,9 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
-	"math/big"
 	"strings"
 
 	"github.com/bytedance/sonic"
-	"github.com/bytedance/sonic/ast"
 )
 
 // MiniCPM5 emits one XML element for each call, without an outer wrapper:
@@ -139,48 +137,8 @@ func miniCPM5Arguments(params []miniCPM5Param, types map[string]string) string {
 		name, _ := sonic.MarshalString(param.Name)
 		b.WriteString(name)
 		b.WriteByte(':')
-		b.WriteString(miniCPM5ArgumentValue(param.Value, types[param.Name]))
+		b.WriteString(toolArgumentValue(param.Value, types[param.Name]))
 	}
 	b.WriteByte('}')
 	return b.String()
-}
-
-func miniCPM5ArgumentValue(value, kind string) string {
-	switch kind {
-	case "integer", "number", "boolean", "object", "array", "null":
-	default:
-		quoted, _ := sonic.MarshalString(value)
-		return quoted
-	}
-	raw := strings.TrimSpace(value)
-	if sonic.ValidString(raw) {
-		parsed, err := sonic.GetFromString(raw)
-		if err == nil {
-			matches := false
-			switch kind {
-			case "integer":
-				matches = parsed.TypeSafe() == ast.V_NUMBER && isIntegerJSON(raw)
-			case "number":
-				matches = parsed.TypeSafe() == ast.V_NUMBER
-			case "boolean":
-				matches = parsed.TypeSafe() == ast.V_TRUE || parsed.TypeSafe() == ast.V_FALSE
-			case "object":
-				matches = parsed.TypeSafe() == ast.V_OBJECT
-			case "array":
-				matches = parsed.TypeSafe() == ast.V_ARRAY
-			case "null":
-				matches = parsed.TypeSafe() == ast.V_NULL
-			}
-			if matches {
-				return raw
-			}
-		}
-	}
-	quoted, _ := sonic.MarshalString(value)
-	return quoted
-}
-
-func isIntegerJSON(raw string) bool {
-	r, ok := new(big.Rat).SetString(raw)
-	return ok && r.IsInt()
 }

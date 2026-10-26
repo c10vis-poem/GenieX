@@ -201,6 +201,23 @@ func TestGemma4Stream(t *testing.T) {
 			wantText: "<tool_call|> stray",
 		},
 		{
+			name:      "nested parallel call with surrounding prose",
+			resp:      `hi <|tool_call>call:a{}<tool_call|> mid <|tool_call>call:b{x:[1,{y:2}]}<tool_call|> tail`,
+			wantText:  "hi  mid  tail",
+			wantCalls: []toolCallFn{{Name: "a", Arguments: `{}`}, {Name: "b", Arguments: `{"x":[1,{"y":2}]}`}},
+		},
+		{
+			name:      "thought header is scanner content",
+			resp:      "<|channel>thought\nhmm\n<channel|><|tool_call>call:go{}<tool_call|>",
+			wantText:  "<|channel>thought\nhmm\n<channel|>",
+			wantCalls: []toolCallFn{{Name: "go", Arguments: `{}`}},
+		},
+		{
+			name:      "JSON-looking string does not become a nested call",
+			resp:      `<|tool_call>call:f{body:<|"|>{"name":"x","arguments":{}}<|"|>}<tool_call|>`,
+			wantCalls: []toolCallFn{{Name: "f", Arguments: `{"body":"{\"name\":\"x\",\"arguments\":{}}"}`}},
+		},
+		{
 			// gemma4 arguments are not JSON, so no format claims them
 			name:     "wrapper holding no call is prose",
 			resp:     `<|tool_call>call:f{not a dict}<tool_call|>`,
@@ -217,38 +234,7 @@ func TestGemma4Stream(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for size := 1; size <= 8; size++ {
-				text, calls := stream(tt.resp, size)
-				if text != tt.wantText {
-					t.Errorf("size %d: text = %q, want %q", size, text, tt.wantText)
-				}
-				if !callsEqual(calls, tt.wantCalls) {
-					t.Errorf("size %d: calls = %+v, want %+v", size, calls, tt.wantCalls)
-				}
-			}
-		})
-	}
-}
-
-// Streaming and the whole-text scan are separate implementations of the parallel case
-// too, so they check each other.
-func TestGemma4StreamAgreesWithParse(t *testing.T) {
-	responses := []string{
-		`<|tool_call>call:f{a:1}<tool_call|>`,
-		`<|tool_call>call:a{}<tool_call|><|tool_call>call:b{}<tool_call|>`,
-		`hi <|tool_call>call:a{}<tool_call|> mid <|tool_call>call:b{x:[1,{y:2}]}<tool_call|> tail`,
-		`<|tool_call>call:f{a:1}`,
-		"<|channel>thought\nhmm\n<channel|><|tool_call>call:go{}<tool_call|>",
-		// a gemma4 string holding JSON: the bare-JSON scan must not claim it
-		`<|tool_call>call:f{body:<|"|>{"name":"x","arguments":{}}<|"|>}<tool_call|>`,
-	}
-
-	for _, resp := range responses {
-		t.Run(resp, func(t *testing.T) {
-			_, got := stream(resp, 1)
-			if want := parseGemma4ToolCalls(resp); !callsEqual(got, want) {
-				t.Errorf("streamed %+v, parsed %+v", got, want)
-			}
+			checkToolCallScanner(t, tt.resp, tt.wantText, tt.wantCalls, nil)
 		})
 	}
 }

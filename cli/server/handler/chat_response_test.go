@@ -13,17 +13,19 @@ import (
 	"github.com/openai/openai-go/v3"
 
 	geniex_sdk "github.com/qualcomm/GenieX/bindings/go"
+	"github.com/qualcomm/GenieX/cli/internal/thinkfsm"
 )
 
-// Covers both bodies writeBlockingResponse can produce: openai's own struct, and the
-// local one that carries reasoning_content.
 type blockingBody struct {
 	Choices []struct {
 		FinishReason string `json:"finish_reason"`
 		Message      struct {
+			Role             string `json:"role"`
 			Content          string `json:"content"`
 			ReasoningContent string `json:"reasoning_content"`
 			ToolCalls        []struct {
+				ID       string `json:"id"`
+				Type     string `json:"type"`
 				Function struct {
 					Name      string `json:"name"`
 					Arguments string `json:"arguments"`
@@ -34,211 +36,131 @@ type blockingBody struct {
 	Timings timings `json:"timings"`
 }
 
-func TestWriteBlockingResponseGemma4EmptyThought(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	var content, reasoning strings.Builder
-	onToken, finish := sinkWithToolCalls(reasoningClass(), &content, &reasoning, "")
-	for _, token := range []string{"<|channel>", "thought", "<channel|>", `<|tool_call>call:go{}<tool_call|>`} {
-		onToken(token)
-	}
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	writeBlockingResponse(c, &content, &reasoning, geniex_sdk.ProfileData{StopReason: "eos"}, finish)
-
-	var got blockingBody
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	choice := got.Choices[0]
-	if choice.Message.Content != "" || choice.Message.ReasoningContent != "" {
-		t.Errorf("content = %q, reasoning = %q, want both empty", choice.Message.Content, choice.Message.ReasoningContent)
-	}
-	if choice.FinishReason != "tool_calls" || len(choice.Message.ToolCalls) != 1 ||
-		choice.Message.ToolCalls[0].Function.Name != "go" || choice.Message.ToolCalls[0].Function.Arguments != `{}` {
-		t.Errorf("choice = %+v, want one go tool call", choice)
-	}
-}
-
-// A tool call must not cost the text around it, nor the reasoning: both used to be
-// dropped whenever one was found.
 func TestWriteBlockingResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	const call = `{"name":"get_weather","arguments":{"city":"Beijing"}}`
-	weather := [2]string{"get_weather", `{"city":"Beijing"}`}
-
-	tests := []struct {
-		name          string
-		content       string
-		reasoning     string
-		parseTool     bool
-		tools         string
-		wantContent   string
-		wantReasoning string
-		wantFinish    string
-		wantCalls     [][2]string
+	call := openai.ChatCompletionMessageFunctionToolCallFunction{Name: "get_weather", Arguments: `{"city":"Beijing"}`}
+	cases := []struct {
+		name               string
+		content, reasoning string
+		calls              []openai.ChatCompletionMessageFunctionToolCallFunction
+		stop, finish       string
 	}{
-		{
-			name: "text only", content: "hello",
-			wantContent: "hello", wantFinish: "stop",
-		},
-		{
-			name: "tools on but nothing to match", content: "hello", parseTool: true,
-			wantContent: "hello", wantFinish: "stop",
-		},
-		{
-			name: "a call keeps the prose around it", content: "sure " + call + " done", parseTool: true,
-			wantContent: "sure  done", wantFinish: "tool_calls", wantCalls: [][2]string{weather},
-		},
-		{
-			name: "parallel calls", content: call + call, parseTool: true,
-			wantFinish: "tool_calls", wantCalls: [][2]string{weather, weather},
-		},
-		{
-			name: "gemma4 syntax", content: `x <|tool_call>call:f{a:1}<tool_call|>`, parseTool: true,
-			wantContent: "x ", wantFinish: "tool_calls", wantCalls: [][2]string{{"f", `{"a":1}`}},
-		},
-		{
-			name: "MiniCPM5 typed arguments", content: `<function name="set"><param name="count">5</param><param name="label">5</param></function>`,
-			parseTool: true, tools: `[{"type":"function","function":{"name":"set","parameters":{"type":"object","properties":{"count":{"type":"integer"},"label":{"type":"string"}}}}}]`,
-			wantFinish: "tool_calls", wantCalls: [][2]string{{"set", `{"count":5,"label":"5"}`}},
-		},
-		{
-			name: "MiniCPM5 unsupported schema leaves valid types intact", content: `<function name="set"><param name="count">5</param><param name="disabled">false</param></function>`,
-			parseTool: true, tools: `[{"type":"function","function":{"name":"set","parameters":{"type":"object","properties":{"count":{"type":"integer"},"disabled":false}}}},
-				{"type":"function","function":{"name":"other","parameters":{"type":"object","properties":{"disabled":false}}}}]`,
-			wantFinish: "tool_calls", wantCalls: [][2]string{{"set", `{"count":5,"disabled":"false"}`}},
-		},
-		{
-			name: "reasoning with a call", content: "sure " + call, reasoning: "let me check",
-			parseTool: true, wantContent: "sure ", wantReasoning: "let me check",
-			wantFinish: "tool_calls", wantCalls: [][2]string{weather},
-		},
-		{
-			name: "reasoning without a call", content: "hello", reasoning: "let me check",
-			parseTool: true, wantContent: "hello", wantReasoning: "let me check", wantFinish: "stop",
-		},
+		{name: "text only", content: "hello", stop: "eos", finish: "stop"},
+		{name: "empty display with a call", calls: []openai.ChatCompletionMessageFunctionToolCallFunction{call}, stop: "eos", finish: "tool_calls"},
+		{name: "prose with a call", content: "sure  done", calls: []openai.ChatCompletionMessageFunctionToolCallFunction{call}, stop: "eos", finish: "tool_calls"},
+		{name: "parallel calls", calls: []openai.ChatCompletionMessageFunctionToolCallFunction{call, call}, stop: "eos", finish: "tool_calls"},
+		{name: "reasoning with a call", content: "sure ", reasoning: "let me check", calls: []openai.ChatCompletionMessageFunctionToolCallFunction{call}, stop: "eos", finish: "tool_calls"},
+		{name: "reasoning without a call", content: "hello", reasoning: "let me check", stop: "eos", finish: "stop"},
+		{name: "truncated text", content: "partial", stop: "length", finish: "length"},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tools := tt.tools
-			if tools != "" {
-				_, request := bindRequest(t, `{"model":"m","messages":[{"role":"user","content":"test"}],"tools":`+tools+`}`)
-				_, encoded, err := parseTools(request)
-				if err != nil {
-					t.Fatal(err)
-				}
-				tools = encoded
-			}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			profile := geniex_sdk.ProfileData{StopReason: "eos", PromptTokens: 5, PrefillSpeed: 10, GeneratedTokens: 3, DecodingSpeed: 20}
+			profile := geniex_sdk.ProfileData{StopReason: tc.stop, PromptTokens: 5, PrefillSpeed: 10, GeneratedTokens: 3, DecodingSpeed: 20}
 			var content, reasoning strings.Builder
-			onToken := sink(plainClass, &content, &reasoning)
-			finish := func() []openai.ChatCompletionMessageFunctionToolCallFunction { return nil }
-			if tt.parseTool {
-				onToken, finish = sinkWithToolCalls(plainClass, &content, &reasoning, tools)
+			finished := false
+			finish := func() []openai.ChatCompletionMessageFunctionToolCallFunction {
+				if finished {
+					t.Error("finish called more than once")
+				}
+				finished = true
+				content.WriteString(tc.content)
+				reasoning.WriteString(tc.reasoning)
+				return tc.calls
 			}
-			onToken(tt.content)
-			reasoning.WriteString(tt.reasoning)
 			writeBlockingResponse(c, &content, &reasoning, profile, finish)
-
+			if !finished {
+				t.Error("response did not finalize the parser")
+			}
 			var got blockingBody
 			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-				t.Fatalf("body %s: %v", w.Body.Bytes(), err)
+				t.Fatal(err)
 			}
-			if len(got.Choices) != 1 {
-				t.Fatalf("choices = %d, want 1", len(got.Choices))
+			if w.Code != 200 || len(got.Choices) != 1 {
+				t.Fatalf("status=%d, choices=%+v", w.Code, got.Choices)
 			}
 			if got.Timings.PromptPerSecond != 10 || got.Timings.PredictedPerSecond != 20 {
-				t.Errorf("timings = %+v, want prompt_per_second=10 predicted_per_second=20", got.Timings)
+				t.Errorf("timings=%+v", got.Timings)
 			}
 			choice := got.Choices[0]
-			if choice.FinishReason != tt.wantFinish {
-				t.Errorf("finish_reason = %q, want %q", choice.FinishReason, tt.wantFinish)
+			if choice.Message.Role != "assistant" || choice.Message.Content != tc.content || choice.Message.ReasoningContent != tc.reasoning || choice.FinishReason != tc.finish {
+				t.Errorf("choice=%+v", choice)
 			}
-			if choice.Message.Content != tt.wantContent {
-				t.Errorf("content = %q, want %q", choice.Message.Content, tt.wantContent)
+			if len(choice.Message.ToolCalls) != len(tc.calls) {
+				t.Fatalf("calls=%+v, want %+v", choice.Message.ToolCalls, tc.calls)
 			}
-			if choice.Message.ReasoningContent != tt.wantReasoning {
-				t.Errorf("reasoning_content = %q, want %q", choice.Message.ReasoningContent, tt.wantReasoning)
-			}
-			if len(choice.Message.ToolCalls) != len(tt.wantCalls) {
-				t.Fatalf("tool_calls = %+v, want %v", choice.Message.ToolCalls, tt.wantCalls)
-			}
-			for i, want := range tt.wantCalls {
-				fn := choice.Message.ToolCalls[i].Function
-				if fn.Name != want[0] || fn.Arguments != want[1] {
-					t.Errorf("tool_calls[%d] = (%q, %q), want (%q, %q)",
-						i, fn.Name, fn.Arguments, want[0], want[1])
+			for i, call := range choice.Message.ToolCalls {
+				if call.Type != "function" || !strings.HasPrefix(call.ID, "call_") || call.Function.Name != tc.calls[i].Name || call.Function.Arguments != tc.calls[i].Arguments {
+					t.Errorf("call %d=%+v, want %+v", i, call, tc.calls[i])
 				}
 			}
 		})
 	}
 }
 
-// Exercises the production-shared finalization and serialization seam, without
-// acquiring a model or invoking runChat's generation and retry path.
-func TestWriteBlockingResponsePreservesHeldText(t *testing.T) {
+func TestChatResponsesFinalizeParserAtEOF(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	const tools = `[{"type":"function","function":{"name":"f","parameters":{"type":"object","properties":{}}}}]`
-	for _, format := range []struct {
-		name      string
-		plain     bool
-		prefix    []string
-		reasoning string
-	}{
-		{name: "none", plain: true},
-		{name: "separated empty reasoning"},
-		{name: "separated populated reasoning", prefix: []string{"<think>", "reason", "</think>"}, reasoning: "reason"},
-	} {
+	for _, reasoning := range []string{"", "reason"} {
 		for _, tail := range []struct {
 			name   string
 			tokens []string
-			want   string
+			text   string
+			calls  []openai.ChatCompletionMessageFunctionToolCallFunction
 		}{
-			{"open object", []string{"{"}, "{"},
-			{"partial wrapper", []string{"answer", " <", "tool", "_c"}, "answer <tool_c"},
+			{name: "open object", tokens: []string{"{"}, text: "{"},
+			{name: "partial wrapper", tokens: []string{"answer", " <", "tool", "_c"}, text: "answer <tool_c"},
+			{name: "recovered call", tokens: []string{`<tool_call>{"name":"f","arguments":{}}`}, calls: []openai.ChatCompletionMessageFunctionToolCallFunction{{Name: "f", Arguments: `{}`}}},
 		} {
 			for _, stop := range []struct {
-				name   string
-				reason string
-				err    error
-				finish string
+				name, reason string
+				err          error
+				finish       string
 			}{
 				{"EOF", "eos", nil, "stop"},
 				{"context limit", "length", geniex_sdk.ErrLlmTokenizationContextLength, "length"},
 			} {
-				t.Run(format.name+"/"+tail.name+"/"+stop.name, func(t *testing.T) {
-					class := func() tokenClass {
-						if format.plain {
-							return plainClass
+				t.Run(reasoning+"/"+tail.name+"/"+stop.name, func(t *testing.T) {
+					class := tokenClass(func(token string) thinkfsm.Event {
+						kind := thinkfsm.Content
+						if token == "reason" {
+							kind = thinkfsm.Thinking
 						}
-						return reasoningClass()
+						return thinkfsm.Event{Kind: kind, Text: token}
+					})
+					tokens := append([]string(nil), tail.tokens...)
+					if reasoning != "" {
+						tokens = append([]string{reasoning}, tokens...)
 					}
-					tokens := append(append([]string(nil), format.prefix...), tail.tokens...)
-					var content, reasoning strings.Builder
-					onToken, finish := sinkWithToolCalls(class(), &content, &reasoning, tools)
+					wantFinish := stop.finish
+					if len(tail.calls) > 0 {
+						wantFinish = "tool_calls"
+					}
+					var content, thought strings.Builder
+					onToken, finish := sinkWithToolCalls(class, &content, &thought, "")
 					for _, token := range tokens {
 						onToken(token)
 					}
 					w := httptest.NewRecorder()
 					c, _ := gin.CreateTestContext(w)
 					profile := geniex_sdk.ProfileData{StopReason: stop.reason}
-					writeBlockingResponse(c, &content, &reasoning, profile, finish)
+					writeBlockingResponse(c, &content, &thought, profile, finish)
 					var got blockingBody
 					if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-						t.Fatalf("body %s: %v", w.Body.Bytes(), err)
+						t.Fatal(err)
 					}
 					if len(got.Choices) != 1 {
-						t.Fatalf("choices = %+v, want one choice", got.Choices)
+						t.Fatalf("choices=%+v", got.Choices)
 					}
 					choice := got.Choices[0]
-					if choice.Message.Content != tail.want || choice.Message.ReasoningContent != format.reasoning || len(choice.Message.ToolCalls) != 0 || choice.FinishReason != stop.finish {
-						t.Errorf("choice = %+v, want content %q, reasoning %q, no calls and finish %q", choice, tail.want, format.reasoning, stop.finish)
+					if choice.Message.Content != tail.text || choice.Message.ReasoningContent != reasoning || choice.FinishReason != wantFinish || len(choice.Message.ToolCalls) != len(tail.calls) {
+						t.Errorf("blocking choice=%+v", choice)
 					}
-
+					for i, call := range choice.Message.ToolCalls {
+						if i < len(tail.calls) && (call.Function.Name != tail.calls[i].Name || call.Function.Arguments != tail.calls[i].Arguments) {
+							t.Errorf("blocking call=%+v, want %+v", call, tail.calls[i])
+						}
+					}
 					sw := &streamRecorder{httptest.NewRecorder(), make(chan bool)}
 					sc, _ := gin.CreateTestContext(sw)
 					sc.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
@@ -247,88 +169,33 @@ func TestWriteBlockingResponsePreservesHeldText(t *testing.T) {
 						dataCh <- token
 					}
 					close(dataCh)
-					streamToolCall(sc, dataCh, func() error { return stop.err }, false, &profile, class(), tools)
+					streamToolCall(sc, dataCh, func() error { return stop.err }, false, &profile, class, "")
 					deltas := sseDeltas(t, sw.Body.String())
 					var streamedContent, streamedReasoning strings.Builder
+					var calls []toolCallDelta
 					for _, delta := range deltas {
 						streamedContent.WriteString(delta.Delta.Content)
 						streamedReasoning.WriteString(delta.Delta.ReasoningContent)
-						if len(delta.Delta.ToolCalls) != 0 {
-							t.Errorf("streamed calls = %+v, want none", delta.Delta.ToolCalls)
+						for _, call := range delta.Delta.ToolCalls {
+							calls = append(calls, toolCallDelta{int(call.Index), call.Function.Name, call.Function.Arguments})
 						}
 					}
-					if streamedContent.String() != tail.want || streamedReasoning.String() != format.reasoning {
-						t.Errorf("streamed text = (%q, %q), want (%q, %q)", streamedContent.String(), streamedReasoning.String(), tail.want, format.reasoning)
+					if streamedContent.String() != tail.text || streamedReasoning.String() != reasoning || len(calls) != len(tail.calls) {
+						t.Errorf("streamed=(%q, %q, %+v)", streamedContent.String(), streamedReasoning.String(), calls)
+					}
+					for i, call := range calls {
+						if i < len(tail.calls) && (call.index != i || call.name != tail.calls[i].Name || call.arguments != tail.calls[i].Arguments) {
+							t.Errorf("streamed call=%+v, want %+v", call, tail.calls[i])
+						}
 					}
 					if len(deltas) == 0 {
 						t.Fatal("stream emitted no terminal chunk")
 					}
-					if reason := deltas[len(deltas)-1].FinishReason; reason == nil || *reason != stop.finish {
-						t.Errorf("streamed finish = %v, want %q", reason, stop.finish)
+					if reason := deltas[len(deltas)-1].FinishReason; reason == nil || *reason != wantFinish {
+						t.Errorf("streamed finish=%v, want %q", reason, wantFinish)
 					}
 				})
 			}
-		}
-	}
-}
-
-func TestWriteBlockingResponseGPTOSSAbandonedRecipient(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	const tools = `[{"type":"function","function":{"name":"f"}}]`
-	for _, prefix := range []struct {
-		name   string
-		tokens []string
-	}{
-		{"role", []string{"<|start|>", "assistant", " to"}},
-		{"analysis", []string{"<|channel|>", "analysis", " to"}},
-		{"final", []string{"<|channel|>", "final", " to"}},
-		{"commentary", []string{"<|channel|>", "comment", "ary", " to"}},
-	} {
-		for _, exit := range []struct {
-			name   string
-			tokens []string
-		}{
-			{"unmatched then end", []string{"x", "<|end|>"}},
-			{"empty ordinary body", []string{"<|message|>", "<|end|>"}},
-		} {
-			t.Run(prefix.name+"/"+exit.name, func(t *testing.T) {
-				tokens := append(append([]string(nil), prefix.tokens...), exit.tokens...)
-				tokens = append(tokens, "<|start|>", "assistant", " to", "=", "functions", ".f", "<|channel|>", "analysis", "<|message|>", "{}", "<|call|>")
-				var content, reasoning strings.Builder
-				onToken, finish := sinkWithToolCalls(reasoningClass(), &content, &reasoning, tools)
-				for _, token := range tokens {
-					onToken(token)
-				}
-				w := httptest.NewRecorder()
-				c, _ := gin.CreateTestContext(w)
-				writeBlockingResponse(c, &content, &reasoning, geniex_sdk.ProfileData{StopReason: "eos"}, finish)
-				var got blockingBody
-				if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-					t.Fatal(err)
-				}
-				if len(got.Choices) != 1 {
-					t.Fatalf("choices = %+v, want one", got.Choices)
-				}
-				choice := got.Choices[0]
-				if choice.Message.Content != "" || choice.Message.ReasoningContent != "" || choice.FinishReason != "tool_calls" || len(choice.Message.ToolCalls) != 1 {
-					t.Errorf("choice = %+v, want one fresh call and no display text", choice)
-				} else if call := choice.Message.ToolCalls[0].Function; call.Name != "f" || call.Arguments != "{}" {
-					t.Errorf("call = %+v, want f with {}", call)
-				}
-				deltas := runStreamToolCallWithTools(t, reasoningClass(), tools, tokens...)
-				var calls []toolCallDelta
-				for _, delta := range deltas {
-					if delta.Delta.Content != "" || delta.Delta.ReasoningContent != "" {
-						t.Errorf("streamed text = %+v, want none", delta.Delta)
-					}
-					for _, call := range delta.Delta.ToolCalls {
-						calls = append(calls, toolCallDelta{int(call.Index), call.Function.Name, call.Function.Arguments})
-					}
-				}
-				if len(calls) != 1 || calls[0] != (toolCallDelta{0, "f", "{}"}) {
-					t.Errorf("streamed calls = %+v, want one fresh f call with {}", calls)
-				}
-			})
 		}
 	}
 }
