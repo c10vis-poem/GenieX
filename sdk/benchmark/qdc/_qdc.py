@@ -127,7 +127,6 @@ def _wait_for_job(client, job_id: str, timeout: int) -> str:
         log.info("job %s: %s", job_id, raw)
         time.sleep(POLL_INTERVAL)
         elapsed += POLL_INTERVAL
-    qdc_api.abort_job(client, job_id)
     raise TimeoutError(f"job {job_id} did not finish within {timeout}s")
 
 
@@ -200,7 +199,14 @@ def submit_and_wait(
         job_parameters=[JobSubmissionParameter.WIFIENABLED],
     )
     log.info("job submitted: %s", job_id)
-    status = _wait_for_job(client, job_id, timeout)
+    try:
+        status = _wait_for_job(client, job_id, timeout)
+    except BaseException:
+        # Timeout or runner cancel (SIGINT): an orphaned job keeps holding one
+        # of the key's pending-job slots and stalls every later submit.
+        log.warning("aborting QDC job %s", job_id)
+        qdc_api.abort_job(client, job_id)
+        raise
     log.info("job %s finished: %s", job_id, status)
     return job_id
 
