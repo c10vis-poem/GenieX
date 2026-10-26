@@ -83,25 +83,7 @@ func TestToolParameterTypesFromToolsWithMiniCPM5(t *testing.T) {
 	if types["typed"]["count"] != "integer" || types["other"]["count"] != "string" {
 		t.Fatalf("incorrect per-function schema types: %+v", types)
 	}
-	if text, got := NewToolCallScanner(types).Parse(resp); text != "" || !callsEqual(got, want) {
-		t.Errorf("blocking: text=%q, calls=%+v, want %+v", text, got, want)
-	}
-	for size := 1; size <= 8; size++ {
-		s := NewToolCallScanner(types)
-		var text string
-		var calls []toolCallFn
-		for i := 0; i < len(resp); i += size {
-			out, got := s.Push(resp[i:min(i+size, len(resp))])
-			text += out
-			calls = append(calls, got...)
-		}
-		tail, got := s.Tail()
-		text += tail
-		calls = append(calls, got...)
-		if text != "" || !callsEqual(calls, want) {
-			t.Errorf("size %d: text=%q, calls=%+v, want %+v", size, text, calls, want)
-		}
-	}
+	checkToolCallScanner(t, resp, "", want, types)
 	if got := ToolParameterTypesFromTools("not JSON"); got != nil {
 		t.Errorf("invalid tools types = %+v, want nil", got)
 	}
@@ -157,6 +139,12 @@ func TestMiniCPM5Stream(t *testing.T) {
 			wantCalls: []toolCallFn{{Name: "lookup", Arguments: `{"q":"weather"}`}},
 		},
 		{
+			name:      "CDATA with surrounding prose",
+			resp:      `prose <function name="f"><param name="text"><![CDATA[a </function> b]]></param></function> tail`,
+			wantText:  "prose  tail",
+			wantCalls: []toolCallFn{{Name: "f", Arguments: `{"text":"a </function> b"}`}},
+		},
+		{
 			name:      "self-closing call",
 			resp:      `<function name="now"/>`,
 			wantCalls: []toolCallFn{{Name: "now", Arguments: `{}`}},
@@ -190,15 +178,7 @@ func TestMiniCPM5Stream(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for size := 1; size <= 8; size++ {
-				text, calls := stream(tt.resp, size)
-				if text != tt.wantText {
-					t.Errorf("size %d: text = %q, want %q", size, text, tt.wantText)
-				}
-				if !callsEqual(calls, tt.wantCalls) {
-					t.Errorf("size %d: calls = %+v, want %+v", size, calls, tt.wantCalls)
-				}
-			}
+			checkToolCallScanner(t, tt.resp, tt.wantText, tt.wantCalls, nil)
 		})
 	}
 }
@@ -307,21 +287,6 @@ func BenchmarkMiniCPM5LongXMLStream(b *testing.B) {
 				if text != "" || !callsEqual(calls, want) {
 					b.Fatalf("text = %q, calls = %+v", text, calls)
 				}
-			}
-		})
-	}
-}
-
-func TestMiniCPM5StreamAgreesWithParse(t *testing.T) {
-	for _, resp := range []string{
-		`<function name="f"><param name="x">1</param></function>`,
-		`prose <function name="f"><param name="text"><![CDATA[a </function> b]]></param></function> tail`,
-		`<function name="a"></function><function name="b"><param name="y">2</param></function>`,
-	} {
-		t.Run(resp, func(t *testing.T) {
-			_, got := stream(resp, 1)
-			if want := parseMiniCPM5ToolCalls(resp, nil); !callsEqual(got, want) {
-				t.Errorf("streamed %+v, parsed %+v", got, want)
 			}
 		})
 	}

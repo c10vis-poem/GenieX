@@ -1,438 +1,532 @@
-// Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries.
+// Copyright (c) 2024-2026 Qualcomm Technologies, Inc. and/or its subsidiaries.
 // SPDX-License-Identifier: BSD-3-Clause
 
 package utils
 
 import (
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/qualcomm/GenieX/cli/internal/thinkfsm"
 )
 
-func callsEqual(got, want []toolCallFn) bool {
-	if len(got) != len(want) {
-		return false
-	}
-	for i := range got {
-		if got[i].Name != want[i].Name || got[i].Arguments != want[i].Arguments {
-			return false
+// The handler receives only display text or structured calls, never FSM boundaries.
+func checkToolCallParserEvents(t *testing.T, events []ToolCallEvent) {
+	t.Helper()
+	for _, ev := range events {
+		switch ev.Kind {
+		case thinkfsm.Content, thinkfsm.Thinking:
+			if ev.Text == "" || ev.Call.Name != "" || ev.Call.Arguments != "" {
+				t.Errorf("display event = %+v, want nonempty text and no call", ev)
+			}
+		case thinkfsm.ToolCall:
+			if ev.Text != "" || ev.Call.Name == "" {
+				t.Errorf("call event = %+v, want structured call and no text", ev)
+			}
+		default:
+			t.Errorf("internal FSM event exposed to handler: %+v", ev)
 		}
 	}
-	return true
 }
 
-// stream feeds resp in chunks of size and returns everything emitted as content
-// plus every call reported, in order.
-func stream(resp string, size int) (string, []toolCallFn) {
-	s := NewToolCallScanner(nil)
-	text := ""
+func toolCallParserOutput(t *testing.T, events []ToolCallEvent) (string, string, []toolCallFn) {
+	t.Helper()
+	checkToolCallParserEvents(t, events)
+	var content, thinking strings.Builder
 	var calls []toolCallFn
-	for i := 0; i < len(resp); i += size {
-		out, got := s.Push(resp[i:min(i+size, len(resp))])
-		text += out
-		calls = append(calls, got...)
+	for _, ev := range events {
+		switch ev.Kind {
+		case thinkfsm.Content:
+			content.WriteString(ev.Text)
+		case thinkfsm.Thinking:
+			thinking.WriteString(ev.Text)
+		case thinkfsm.ToolCall:
+			calls = append(calls, ev.Call)
+		}
 	}
-	tail, got := s.Tail()
-	return text + tail, append(calls, got...)
+	return content.String(), thinking.String(), calls
 }
 
-// Every byte is either streamed as content or consumed by a tool call, and the
-// split must not depend on where the token boundaries fall.
-func TestScannerStream(t *testing.T) {
-	tests := []struct {
-		name      string
-		resp      string
-		wantText  string
-		wantCalls []toolCallFn
+func feedToolCallParser(t *testing.T, parser *ToolCallParser, input []thinkfsm.Event) []ToolCallEvent {
+	t.Helper()
+	var output []ToolCallEvent
+	for _, ev := range input {
+		events := parser.Feed(ev)
+		checkToolCallParserEvents(t, events)
+		output = append(output, events...)
+	}
+	return output
+}
+
+func directedToolCallEvents(header, args []string, end bool) []thinkfsm.Event {
+	var input []thinkfsm.Event
+	for _, text := range header {
+		input = append(input, thinkfsm.Event{Kind: thinkfsm.ToolCall, Text: text})
+	}
+	input = append(input, thinkfsm.Event{Kind: thinkfsm.ToolCallStart})
+	for _, text := range args {
+		input = append(input, thinkfsm.Event{Kind: thinkfsm.ToolCall, Text: text})
+	}
+	if end {
+		input = append(input, thinkfsm.Event{Kind: thinkfsm.ToolCallEnd})
+	}
+	return input
+}
+
+func TestToolCallParserDirectedInput(t *testing.T) {
+	cases := []struct {
+		name   string
+		header []string
+		args   []string
+		end    bool
+		want   []toolCallFn
 	}{
-		{
-			name:     "prose only",
-			resp:     "Sure, here is the answer.",
-			wantText: "Sure, here is the answer.",
-		},
-		{
-			name:      "bare call after prose",
-			resp:      `sure {"name": "f", "arguments": {}}`,
-			wantText:  "sure ",
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{}`}},
-		},
-		{
-			// the point of an end marker: the stream resumes after the call
-			name:      "prose after a call",
-			resp:      `{"name": "f", "arguments": {}} and then some prose`,
-			wantText:  " and then some prose",
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{}`}},
-		},
-		{
-			name:      "two calls with prose between",
-			resp:      `a {"name":"f","arguments":{}} b {"name":"g","arguments":{"x":1}} c`,
-			wantText:  "a  b  c",
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{}`}, {Name: "g", Arguments: `{"x":1}`}},
-		},
-		{
-			name:      "qwen3 wrapper",
-			resp:      "<tool_call>{\"name\": \"f\", \"arguments\": {}}</tool_call>",
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{}`}},
-		},
-		{
-			name:      "qwen3 wrapper then prose",
-			resp:      "<tool_call>\n{\"name\": \"f\", \"arguments\": {}}\n</tool_call> bye",
-			wantText:  " bye",
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{}`}},
-		},
-		{
-			name:      "two qwen3 wrappers",
-			resp:      `<tool_call>{"name":"f","arguments":{}}</tool_call><tool_call>{"name":"g","arguments":{}}</tool_call>`,
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{}`}, {Name: "g", Arguments: `{}`}},
-		},
-		{
-			// the model stopped before the closing tag: Tail still finds the call
-			name:      "unclosed wrapper",
-			resp:      `<tool_call>{"name": "f", "arguments": {}}`,
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{}`}},
-		},
-		{
-			// The brace holds the buffer for JSON, but the call in it is gemma4's.
-			name:      "a gemma4 call held by a stray brace",
-			resp:      `code { <|tool_call>call:f{a:1}<tool_call|>`,
-			wantText:  "code ",
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{"a":1}`}},
-		},
-		{
-			name:      "a gemma4 call held by a qwen3 marker",
-			resp:      `<tool_call>oops <|tool_call>call:f{a:1}<tool_call|>`,
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{"a":1}`}},
-		},
-		{
-			// one region, two calls: both come out on the Push that closed it
-			name:      "two calls in one wrapper",
-			resp:      `<tool_call>{"name":"a","arguments":{}}{"name":"b","arguments":{}}</tool_call>`,
-			wantCalls: []toolCallFn{{Name: "a", Arguments: `{}`}, {Name: "b", Arguments: `{}`}},
-		},
-		{
-			// what a Mistral-style array syntax looks like inside one region
-			name:      "a json array of calls in one wrapper",
-			resp:      `<tool_call>[{"name":"a","arguments":{}},{"name":"b","arguments":{"x":1}}]</tool_call>`,
-			wantCalls: []toolCallFn{{Name: "a", Arguments: `{}`}, {Name: "b", Arguments: `{"x":1}`}},
-		},
-		{
-			name:     "wrapper holding no call is prose",
-			resp:     "<tool_call>not a call at all</tool_call> ok",
-			wantText: "<tool_call>not a call at all</tool_call> ok",
-		},
-		{
-			name:     "refuted marker prefix",
-			resp:     "<tool_callaaa and more",
-			wantText: "<tool_callaaa and more",
-		},
-		{
-			name:     "non-call object is released",
-			resp:     `{"foo": 1} hi`,
-			wantText: `{"foo": 1} hi`,
-		},
-		{
-			name:     "unclosed brace held to the end",
-			resp:     "here is code {\n\tf(a, b)",
-			wantText: "here is code {\n\tf(a, b)",
-		},
-		{
-			name:      "braces and escapes inside strings",
-			resp:      `{"name":"f","arguments":{"s":"}{ \" }"}} tail`,
-			wantText:  " tail",
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{"s":"}{ \" }"}`}},
-		},
-		{
-			name:      "arguments given as a string",
-			resp:      `{"name":"echo","arguments":"hi"} bye`,
-			wantText:  " bye",
-			wantCalls: []toolCallFn{{Name: "echo", Arguments: "hi"}},
-		},
-		{
-			name:      "two wrappers with text between",
-			resp:      `<tool_call>{"name":"f","arguments":{}}</tool_call>tail<tool_call>{"name":"g","arguments":{}}</tool_call>`,
-			wantText:  "tail",
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{}`}, {Name: "g", Arguments: `{}`}},
-		},
-		{
-			name:     "stray closing marker",
-			resp:     "</tool_call> stray close",
-			wantText: "</tool_call> stray close",
-		},
-		{
-			name:     "empty wrapper",
-			resp:     "<tool_call></tool_call> ok",
-			wantText: "<tool_call></tool_call> ok",
-		},
-		{
-			name:      "a marker inside the call's own arguments",
-			resp:      `{"name":"f","arguments":{"s":"<tool_call>"}}`,
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{"s":"<tool_call>"}`}},
-		},
-		{
-			name:     "a marker quoted in prose is held, then released",
-			resp:     `talk about "<tool_call>" in prose`,
-			wantText: `talk about "<tool_call>" in prose`,
-		},
-		{
-			// markerFormat's BUG: the quoted end tag cuts the region short, so this
-			// parses as nothing and streams as text. Parse on the whole text finds it.
-			name:     "a closing marker inside the arguments loses the call",
-			resp:     `<tool_call>{"name":"f","arguments":{"s":"</tool_call>"}}</tool_call>`,
-			wantText: `<tool_call>{"name":"f","arguments":{"s":"</tool_call>"}}</tool_call>`,
-		},
-		{
-			name:      "a quoted brace before the call",
-			resp:      `note: "{" then {"name":"f","arguments":{}}`,
-			wantText:  `note: "`,
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{}`}},
-		},
-		{
-			name:      "braces inside the arguments string",
-			resp:      `{"name":"f","arguments":{"s":"}}{{"}}`,
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{"s":"}}{{"}`}},
-		},
-		{
-			name:      "an escaped backslash ends the string",
-			resp:      `{"name":"f","arguments":{"p":"C:\\"}} x`,
-			wantText:  " x",
-			wantCalls: []toolCallFn{{Name: "f", Arguments: `{"p":"C:\\"}`}},
-		},
-		{
-			name:     "a marker that never opens",
-			resp:     "a <b <c <too <tool_ nothing opens here",
-			wantText: "a <b <c <too <tool_ nothing opens here",
-		},
-		{
-			name:     "ends on a bare marker prefix",
-			resp:     "stops mid marker <tool_c",
-			wantText: "stops mid marker <tool_c",
-		},
+		{"complete at end", []string{" to", "=", "functions", ".f"}, []string{`{"x":1}`}, true, []toolCallFn{{Name: "f", Arguments: `{"x":1}`}}},
+		{"complete at EOF", []string{" to", "=", "functions", ".get", "_weather", " "}, []string{`{"city":`, `"Paris"`, "}"}, false, []toolCallFn{{Name: "get_weather", Arguments: `{"city":"Paris"}`}}},
+		{"nested object and quoted brace", []string{" to=functions.f"}, []string{`{"a":{"b":[1,2]},"s":"}"}`}, true, []toolCallFn{{Name: "f", Arguments: `{"a":{"b":[1,2]},"s":"}"}`}}},
+		{"trim body whitespace", []string{" to=functions.f"}, []string{" \n", `{"x": 1}`, "\t "}, false, []toolCallFn{{Name: "f", Arguments: `{"x": 1}`}}},
+		{"allowed name characters", []string{" to=functions.A1_b-c.d"}, []string{"{}"}, true, []toolCallFn{{Name: "A1_b-c.d", Arguments: `{}`}}},
+		{"unclosed JSON", []string{" to=functions.f"}, []string{`{"x":`}, false, nil},
+		{"invalid JSON", []string{" to=functions.f"}, []string{`{"x":,}`}, true, nil},
+		{"text before JSON", []string{" to=functions.f"}, []string{`oops {"x":1}`}, true, nil},
+		{"text after JSON", []string{" to=functions.f"}, []string{`{} trailing`}, true, nil},
+		{"two argument objects", []string{" to=functions.f"}, []string{`{} {}`}, true, nil},
+		{"array arguments", []string{" to=functions.f"}, []string{`[{"x":1}]`}, true, nil},
+		{"string arguments", []string{" to=functions.f"}, []string{`"value"`}, false, nil},
+		{"no arguments", []string{" to=functions.f"}, nil, true, nil},
+		{"header prefix garbage", []string{"garbage to=functions.f"}, []string{"{}"}, true, nil},
+		{"header missing leading space", []string{"to=functions.f"}, []string{"{}"}, true, nil},
+		{"wrong functions prefix", []string{" to=functions_extra.f"}, []string{"{}"}, false, nil},
+		{"invalid first name character", []string{" to=functions.$f"}, []string{"{}"}, true, nil},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// 8 bytes is well above any real token; TestParseMatchesStream covers the
-			// other end, a whole response in one chunk.
-			for size := 1; size <= 8; size++ {
-				text, calls := stream(tt.resp, size)
-				if text != tt.wantText {
-					t.Errorf("size %d: text = %q, want %q", size, text, tt.wantText)
-				}
-				if !callsEqual(calls, tt.wantCalls) {
-					t.Errorf("size %d: calls = %+v, want %+v", size, calls, tt.wantCalls)
-				}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			parser := NewToolCallParser(nil)
+			output := feedToolCallParser(t, parser, directedToolCallEvents(tc.header, tc.args, tc.end))
+			output = append(output, parser.Finish()...)
+			content, thinking, calls := toolCallParserOutput(t, output)
+			if content != "" || thinking != "" || !callsEqual(calls, tc.want) {
+				t.Errorf("output = (%q, %q, %+v), want no display text and %+v", content, thinking, calls, tc.want)
+			}
+			if events := parser.Finish(); len(events) != 0 {
+				t.Errorf("second Finish = %+v, want empty", events)
 			}
 		})
 	}
 }
 
-// The streaming path and the whole-text scan are separate implementations, so they
-// check each other.
-func TestStreamAgreesWithJSONParse(t *testing.T) {
-	responses := []string{
-		"just prose",
-		`{"name":"f","arguments":{"a":1}}`,
-		`prose {"name":"f","arguments":{}} more`,
-		`{"name":"a","arguments":{}} x {"name":"b","arguments":{}}`,
-		"<tool_call>{\"name\":\"f\",\"arguments\":{}}</tool_call>",
-		`<tool_call>{"name":"f","arguments":{}}`,
-		`{"foo":1} noise {"name":"f","arguments":{}}`,
-		"a } b { c unbalanced",
-	}
-
-	for _, resp := range responses {
-		t.Run(resp, func(t *testing.T) {
-			_, got := stream(resp, 1)
-			if want := parseJSONToolCalls(resp); !callsEqual(got, want) {
-				t.Errorf("streamed %+v, parsed %+v", got, want)
+func TestToolCallParserBuiltinBodiesAreDiscarded(t *testing.T) {
+	for _, recipient := range []string{"browser", "python", "other", "container.exec"} {
+		for _, body := range []string{
+			`{"name":"fake","arguments":{}}`,
+			` to=functions.fake {"name":"nested","arguments":{}}`,
+			`{"nested":{"name":"fake","arguments":{}}}`,
+			"print(1)",
+		} {
+			for _, end := range []bool{false, true} {
+				t.Run(recipient+"/"+body+"/end="+strconv.FormatBool(end), func(t *testing.T) {
+					parser := NewToolCallParser(nil)
+					input := directedToolCallEvents([]string{" to", "=", recipient}, []string{body}, end)
+					output := append(feedToolCallParser(t, parser, input), parser.Finish()...)
+					if len(output) != 0 {
+						t.Errorf("nonfunctions body = %+v, want neither generic calls nor display text", output)
+					}
+				})
 			}
-		})
+		}
 	}
 }
 
-// Parse is the non-streaming twin of Push, so it must keep and drop the same bytes.
-func TestParseMatchesStream(t *testing.T) {
-	responses := []string{
-		"just prose",
-		`sure {"name":"f","arguments":{}} and then prose`,
-		`{"name":"a","arguments":{}} x {"name":"b","arguments":{}} y`,
-		`<tool_call>{"name":"f","arguments":{}}</tool_call>tail`,
-		`{"foo":1} then {"name":"f","arguments":{}}`,
-		`hi <|tool_call>call:a{}<tool_call|>mid<|tool_call>call:b{x:1}<tool_call|>bye`,
-		`<tool_call>{"name":"f","arguments":{}}`,
-		"here is code {\n\tf(a, b)",
-	}
-
-	for _, resp := range responses {
-		t.Run(resp, func(t *testing.T) {
-			wantText, wantCalls := stream(resp, 1)
-			text, calls := NewToolCallScanner(nil).Parse(resp)
-			if text != wantText {
-				t.Errorf("text = %q, want %q", text, wantText)
-			}
-			if !callsEqual(calls, wantCalls) {
-				t.Errorf("calls = %+v, want %+v", calls, wantCalls)
-			}
-		})
-	}
-}
-
-// Tail ends the stream, so what it drained is consumed: calling it again is empty.
-func TestTailIsTerminal(t *testing.T) {
-	for _, resp := range []string{
-		"here is code {\n\tf(a, b)",
-		`<tool_call>{"name":"f","arguments":{}}`,
+func TestToolCallParserConsumesInternalEvents(t *testing.T) {
+	parser := NewToolCallParser(map[string]map[string]string{"other": {"x": "integer"}})
+	for _, ev := range []thinkfsm.Event{
+		{Kind: thinkfsm.Consume, Text: "header garbage"},
+		{Kind: thinkfsm.ToolCallStart},
+		{Kind: thinkfsm.ToolCallEnd},
+		{Kind: thinkfsm.EnterThinking},
+		{Kind: thinkfsm.LeaveThinking},
 	} {
-		s := NewToolCallScanner(nil)
-		s.Push(resp)
-		s.Tail()
-		if text, calls := s.Tail(); text != "" || len(calls) > 0 {
-			t.Errorf("resp %q: second Tail = (%q, %+v), want empty", resp, text, calls)
+		if events := parser.Feed(ev); len(events) != 0 {
+			t.Errorf("internal Feed(%+v) = %+v, want no output", ev, events)
+		}
+	}
+	input := []thinkfsm.Event{
+		{Kind: thinkfsm.ToolCall, Text: " to=functions.f"},
+		{Kind: thinkfsm.Consume, Text: "json"},
+		{Kind: thinkfsm.Consume, Text: "constraint header garbage"},
+		{Kind: thinkfsm.ToolCallStart},
+		{Kind: thinkfsm.ToolCall, Text: "{"},
+		{Kind: thinkfsm.Consume, Text: "ignored"},
+		{Kind: thinkfsm.ToolCall, Text: "}"},
+		{Kind: thinkfsm.ToolCallEnd},
+	}
+	output := append(feedToolCallParser(t, parser, input), parser.Finish()...)
+	content, thinking, calls := toolCallParserOutput(t, output)
+	if content != "" || thinking != "" || !callsEqual(calls, []toolCallFn{{Name: "f", Arguments: `{}`}}) {
+		t.Errorf("consumed garbage output = (%q, %q, %+v), want f call independent of schema names", content, thinking, calls)
+	}
+}
+
+func TestToolCallParserHeaderOnlyIsDiscarded(t *testing.T) {
+	for _, input := range [][]thinkfsm.Event{
+		{{Kind: thinkfsm.ToolCall, Text: " to=functions.f"}},
+		{{Kind: thinkfsm.ToolCall, Text: " to=functions.f"}, {Kind: thinkfsm.ToolCall, Text: "{}"}},
+		{{Kind: thinkfsm.ToolCall, Text: " to=functions.f"}, {Kind: thinkfsm.ToolCallEnd}},
+	} {
+		parser := NewToolCallParser(nil)
+		output := append(feedToolCallParser(t, parser, input), parser.Finish()...)
+		if len(output) != 0 {
+			t.Errorf("header-only input %+v emitted %+v", input, output)
 		}
 	}
 }
 
-// A format reporting an offset behind from panics Push on a negative-length slice.
-// Only the interface pins that, so run the formats the way Push runs them.
-func TestFeedOffsetsStayAhead(t *testing.T) {
-	// Near-miss adjacency is what breaks a scan: try every triple of these.
-	pieces := []string{"<|tool_call>call:", "<tool_call>", "</tool_call>", "<tool_call|>",
-		"{", "}", `"`, `<|"|>`, "a:1", " "}
-	var corpus []string
-	for _, a := range pieces {
-		for _, b := range pieces {
-			for _, c := range pieces {
-				corpus = append(corpus, a+b+c)
-			}
+func TestToolCallParserEndCompletionIsIdempotent(t *testing.T) {
+	parser := NewToolCallParser(nil)
+	input := directedToolCallEvents([]string{" to", "=", "functions", ".f"}, []string{"{}"}, false)
+	if output := feedToolCallParser(t, parser, input); len(output) != 0 {
+		t.Fatalf("unfinished tool emitted %+v", output)
+	}
+	output := parser.Feed(thinkfsm.Event{Kind: thinkfsm.ToolCallEnd})
+	content, thinking, calls := toolCallParserOutput(t, output)
+	if content != "" || thinking != "" || !callsEqual(calls, []toolCallFn{{Name: "f", Arguments: `{}`}}) {
+		t.Errorf("end output = (%q, %q, %+v)", content, thinking, calls)
+	}
+	for _, ev := range []thinkfsm.Event{{Kind: thinkfsm.ToolCallEnd}, {Kind: thinkfsm.ToolCallEnd}} {
+		if output := parser.Feed(ev); len(output) != 0 {
+			t.Errorf("after completion Feed(%+v) = %+v, want empty", ev, output)
 		}
 	}
-	corpus = append(corpus,
-		`{"name":"f","arguments":{}} and {"name":"g","arguments":{}}`,
-		`<tool_call>{"name":"f","arguments":{"s":"</tool_call>"}}</tool_call>`,
-		`<|tool_call>call:a{}<tool_call|>mid<|tool_call>call:b{x:<|"|>}{<|"|>}<tool_call|>`,
-		`{"a":"<tool_call>"} more`,
-		"prose { unclosed <tool_call> forever")
+	if output := parser.Finish(); len(output) != 0 {
+		t.Errorf("after completion Finish = %+v, want empty", output)
+	}
+}
 
-	for _, resp := range corpus {
-		for size := 1; size <= 3; size++ {
-			formats := NewToolCallScanner(nil).formats
-			from := 0
-			for j := min(size, len(resp)); ; j = min(j+size, len(resp)) {
-				for { // Push steps until nothing closes, so from can move several times
-					hold, end := j, -1
-					for i, f := range formats {
-						at, e := f.feed(resp[:j], from)
-						if at >= 0 && at < from {
-							t.Fatalf("format %d: feed(%q, %d) = (%d, %d), start behind from",
-								i, resp[:j], from, at, e)
-						}
-						if e >= 0 && e < at {
-							t.Fatalf("format %d: feed(%q, %d) = (%d, %d), end behind start",
-								i, resp[:j], from, at, e)
-						}
-						if at >= 0 && at < hold {
-							hold, end = at, e
+func TestToolCallParserEndResetsCandidatePrefixes(t *testing.T) {
+	old := directedToolCallEvents([]string{" to", "=", "functions", ".old"}, []string{`{"x":`, "1}"}, false)
+	for n := 0; n <= len(old); n++ {
+		t.Run("prefix "+strconv.Itoa(n), func(t *testing.T) {
+			parser := NewToolCallParser(nil)
+			output := feedToolCallParser(t, parser, old[:n])
+			output = append(output, parser.Feed(thinkfsm.Event{Kind: thinkfsm.ToolCallEnd})...)
+			var want []toolCallFn
+			if n == len(old) {
+				want = append(want, toolCallFn{Name: "old", Arguments: `{"x":1}`})
+			}
+			content, thinking, calls := toolCallParserOutput(t, output)
+			if content != "" || thinking != "" || !callsEqual(calls, want) {
+				t.Fatalf("ended prefix = (%q, %q, %+v), want calls %+v", content, thinking, calls, want)
+			}
+			for i := 0; i < 2; i++ {
+				if events := parser.Feed(thinkfsm.Event{Kind: thinkfsm.ToolCallEnd}); len(events) != 0 {
+					t.Errorf("repeated End = %+v, want empty", events)
+				}
+				if events := parser.Finish(); len(events) != 0 {
+					t.Errorf("Finish after End = %+v, want empty", events)
+				}
+			}
+			fresh := directedToolCallEvents([]string{" to", "=", "functions", ".fresh"}, []string{`{"x":1}`}, true)
+			output = append(output, feedToolCallParser(t, parser, fresh)...)
+			output = append(output, parser.Finish()...)
+			want = append(want, toolCallFn{Name: "fresh", Arguments: `{"x":1}`})
+			content, thinking, calls = toolCallParserOutput(t, output)
+			if content != "" || thinking != "" || !callsEqual(calls, want) {
+				t.Errorf("old then fresh output = (%q, %q, %+v), want %+v", content, thinking, calls, want)
+			}
+		})
+	}
+}
+
+func TestToolCallParserEndDiscardsInvalidCandidate(t *testing.T) {
+	for _, args := range []string{`{"x":,}`, `{"x":`, `{} trailing`} {
+		t.Run(args, func(t *testing.T) {
+			parser := NewToolCallParser(nil)
+			old := directedToolCallEvents([]string{" to=functions.old"}, []string{args}, true)
+			output := append(feedToolCallParser(t, parser, old), parser.Finish()...)
+			if len(output) != 0 {
+				t.Fatalf("invalid candidate emitted %+v", output)
+			}
+			fresh := directedToolCallEvents([]string{" to=functions.fresh"}, []string{"{}"}, true)
+			output = append(feedToolCallParser(t, parser, fresh), parser.Finish()...)
+			content, thinking, calls := toolCallParserOutput(t, output)
+			if content != "" || thinking != "" || !callsEqual(calls, []toolCallFn{{Name: "fresh", Arguments: `{}`}}) {
+				t.Errorf("after invalid candidate = (%q, %q, %+v), want fresh only", content, thinking, calls)
+			}
+		})
+	}
+}
+
+func TestToolCallParserDisplayTransitionsEndCandidate(t *testing.T) {
+	for _, kind := range []thinkfsm.EventKind{thinkfsm.Content, thinkfsm.Thinking, thinkfsm.EnterThinking, thinkfsm.LeaveThinking} {
+		for _, args := range []string{"{}", `{"x":`} {
+			t.Run("kind "+strconv.Itoa(int(kind))+"/"+args, func(t *testing.T) {
+				parser := NewToolCallParser(nil)
+				input := directedToolCallEvents([]string{" to=functions.old"}, []string{args}, false)
+				output := feedToolCallParser(t, parser, input)
+				ev := thinkfsm.Event{Kind: kind}
+				var want []ToolCallEvent
+				if args == "{}" {
+					want = append(want, ToolCallEvent{Kind: thinkfsm.ToolCall, Call: toolCallFn{Name: "old", Arguments: `{}`}})
+				}
+				if kind == thinkfsm.Content || kind == thinkfsm.Thinking {
+					ev.Text = "next"
+					want = append(want, ToolCallEvent{Kind: kind, Text: "next"})
+				}
+				output = append(output, parser.Feed(ev)...)
+				checkToolCallParserEvents(t, output)
+				if !reflect.DeepEqual(output, want) {
+					t.Errorf("display transition = %+v, want ordered events %+v", output, want)
+				}
+				if events := parser.Feed(thinkfsm.Event{Kind: thinkfsm.ToolCallEnd}); len(events) != 0 {
+					t.Errorf("End after display transition = %+v, want empty", events)
+				}
+				if events := parser.Finish(); len(events) != 0 {
+					t.Errorf("Finish after display transition = %+v, want empty", events)
+				}
+				output = parser.Feed(thinkfsm.Event{Kind: thinkfsm.Content, Text: "answer"})
+				output = append(output, parser.Feed(thinkfsm.Event{Kind: thinkfsm.Thinking, Text: "reason"})...)
+				output = append(output, parser.Finish()...)
+				content, thinking, calls := toolCallParserOutput(t, output)
+				if content != "answer" || thinking != "reason" || len(calls) != 0 {
+					t.Errorf("next display = (%q, %q, %+v), want answer/reason without stale call", content, thinking, calls)
+				}
+			})
+		}
+	}
+}
+
+func TestToolCallParserInternalBoundariesAreNotOutput(t *testing.T) {
+	parser := NewToolCallParser(nil)
+	input := []thinkfsm.Event{
+		{Kind: thinkfsm.Consume, Text: "ignored header"},
+		{Kind: thinkfsm.EnterThinking},
+		{Kind: thinkfsm.Thinking, Text: "first reason"},
+		{Kind: thinkfsm.LeaveThinking},
+		{Kind: thinkfsm.ToolCall, Text: " to=functions.old"},
+		{Kind: thinkfsm.Consume, Text: "constraint type and header garbage"},
+		{Kind: thinkfsm.ToolCallEnd},
+		{Kind: thinkfsm.EnterThinking},
+		{Kind: thinkfsm.Thinking, Text: "second reason"},
+		{Kind: thinkfsm.LeaveThinking},
+		{Kind: thinkfsm.Content, Text: "answer"},
+	}
+	input = append(input, directedToolCallEvents([]string{" to", "=", "functions", ".f"}, []string{"{}"}, true)...)
+	output := append(feedToolCallParser(t, parser, input), parser.Finish()...)
+	content, thinking, calls := toolCallParserOutput(t, output)
+	if content != "answer" || thinking != "first reasonsecond reason" || !callsEqual(calls, []toolCallFn{{Name: "f", Arguments: `{}`}}) {
+		t.Errorf("output = (%q, %q, %+v), want only display bodies and f call", content, thinking, calls)
+	}
+}
+
+func TestToolCallParserFlushTextAttribution(t *testing.T) {
+	cases := []struct {
+		name     string
+		kind     thinkfsm.EventKind
+		boundary thinkfsm.EventKind
+		next     thinkfsm.EventKind
+	}{
+		{"content to thinking", thinkfsm.Content, thinkfsm.Thinking, thinkfsm.Thinking},
+		{"thinking to content", thinkfsm.Thinking, thinkfsm.Content, thinkfsm.Content},
+		{"enter thinking", thinkfsm.Content, thinkfsm.EnterThinking, thinkfsm.Thinking},
+		{"leave thinking", thinkfsm.Thinking, thinkfsm.LeaveThinking, thinkfsm.Content},
+		{"content to tool header", thinkfsm.Content, thinkfsm.ToolCall, thinkfsm.Content},
+		{"thinking to tool header", thinkfsm.Thinking, thinkfsm.ToolCall, thinkfsm.Thinking},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			parser := NewToolCallParser(nil)
+			first := parser.Feed(thinkfsm.Event{Kind: tc.kind, Text: "{"})
+			checkToolCallParserEvents(t, first)
+			if tc.kind == thinkfsm.Content {
+				if len(first) != 0 {
+					t.Fatalf("held content brace emitted %+v", first)
+				}
+			} else if len(first) != 1 || first[0].Kind != thinkfsm.Thinking || first[0].Text != "{" {
+				t.Fatalf("thinking brace = %+v, want immediate untouched Thinking", first)
+			}
+			ev := thinkfsm.Event{Kind: tc.boundary}
+			if tc.boundary == thinkfsm.ToolCall {
+				ev.Text = " to=functions.old"
+			}
+			output := parser.Feed(ev)
+			checkToolCallParserEvents(t, output)
+			if tc.kind == thinkfsm.Content {
+				if len(output) != 1 || output[0].Kind != thinkfsm.Content || output[0].Text != "{" {
+					t.Fatalf("boundary flush = %+v, want brace attributed to Content", output)
+				}
+			} else if len(output) != 0 {
+				t.Fatalf("thinking bypass left a held prefix: %+v", output)
+			}
+			output = append(parser.Feed(thinkfsm.Event{Kind: tc.next, Text: "next"}), parser.Finish()...)
+			checkToolCallParserEvents(t, output)
+			if len(output) != 1 || output[0].Kind != tc.next || output[0].Text != "next" {
+				t.Errorf("after boundary = %+v, want next text in kind %v", output, tc.next)
+			}
+		})
+	}
+}
+
+func TestToolCallParserThinkingFlushesContentWithoutScanning(t *testing.T) {
+	parser := NewToolCallParser(nil)
+	if events := parser.Feed(thinkfsm.Event{Kind: thinkfsm.Content, Text: "{"}); len(events) != 0 {
+		t.Fatalf("held Content brace emitted %+v", events)
+	}
+	const reasoning = `"name":"f","arguments":{}}`
+	output := parser.Feed(thinkfsm.Event{Kind: thinkfsm.Thinking, Text: reasoning})
+	want := []ToolCallEvent{
+		{Kind: thinkfsm.Content, Text: "{"},
+		{Kind: thinkfsm.Thinking, Text: reasoning},
+	}
+	checkToolCallParserEvents(t, output)
+	if !reflect.DeepEqual(output, want) {
+		t.Errorf("Thinking boundary = %+v, want ordered Content then literal Thinking %+v", output, want)
+	}
+	if events := parser.Finish(); len(events) != 0 {
+		t.Errorf("Finish = %+v, want no cross-kind call or held text", events)
+	}
+}
+
+func TestToolCallParserThinkingCallSyntaxIsImmediate(t *testing.T) {
+	for _, text := range []string{
+		`{"name":"f","arguments":{"x":1}}`,
+		`<tool_call>{"name":"f","arguments":{"x":1}}</tool_call>`,
+		`<|tool_call>call:f{x:1}<tool_call|>`,
+		`<function name="f"><param name="x">1</param></function>`,
+		` to=functions.f<|message|>{"x":1}<|call|>`,
+	} {
+		t.Run(text, func(t *testing.T) {
+			parser := NewToolCallParser(nil)
+			// Split inside each opener: even partial call-looking reasoning is immediate.
+			for _, part := range []string{text[:1], text[1:]} {
+				output := parser.Feed(thinkfsm.Event{Kind: thinkfsm.Thinking, Text: part})
+				content, thinking, calls := toolCallParserOutput(t, output)
+				if content != "" || thinking != part || len(calls) != 0 {
+					t.Errorf("Thinking Feed(%q) = (%q, %q, %+v), want immediate literal reasoning", part, content, thinking, calls)
+				}
+			}
+			if events := parser.Finish(); len(events) != 0 {
+				t.Errorf("Finish after literal reasoning = %+v, want empty", events)
+			}
+		})
+	}
+}
+
+func TestToolCallParserGenericTextAndFinish(t *testing.T) {
+	for _, kind := range []thinkfsm.EventKind{thinkfsm.Content, thinkfsm.Thinking} {
+		parser := NewToolCallParser(nil)
+		input := []thinkfsm.Event{
+			{Kind: kind, Text: "before "},
+			{Kind: kind, Text: `{"name":"f","arg`},
+			{Kind: kind, Text: `uments":{"x":1}}`},
+			{Kind: kind, Text: " after {unfinished"},
+		}
+		output := append(feedToolCallParser(t, parser, input), parser.Finish()...)
+		content, thinking, calls := toolCallParserOutput(t, output)
+		wantContent, wantThinking := "before  after {unfinished", ""
+		wantCalls := []toolCallFn{{Name: "f", Arguments: `{"x":1}`}}
+		if kind == thinkfsm.Thinking {
+			wantContent, wantThinking = "", `before {"name":"f","arguments":{"x":1}} after {unfinished`
+			wantCalls = nil
+		}
+		if content != wantContent || thinking != wantThinking || !callsEqual(calls, wantCalls) {
+			t.Errorf("kind %v output = (%q, %q, %+v)", kind, content, thinking, calls)
+		}
+		if output := parser.Finish(); len(output) != 0 {
+			t.Errorf("second Finish = %+v, want empty", output)
+		}
+	}
+}
+
+func TestToolCallParserGenericCallRecoveredAtFinish(t *testing.T) {
+	const text = `<tool_call>{"name":"f","arguments":{}}`
+	for _, kind := range []thinkfsm.EventKind{thinkfsm.Content, thinkfsm.Thinking} {
+		t.Run("kind "+strconv.Itoa(int(kind)), func(t *testing.T) {
+			parser := NewToolCallParser(nil)
+			output := parser.Feed(thinkfsm.Event{Kind: kind, Text: text})
+			if kind == thinkfsm.Content {
+				if len(output) != 0 {
+					t.Fatalf("unclosed Content wrapper emitted %+v before EOF", output)
+				}
+				content, thinking, calls := toolCallParserOutput(t, parser.Finish())
+				if content != "" || thinking != "" || !callsEqual(calls, []toolCallFn{{Name: "f", Arguments: `{}`}}) {
+					t.Errorf("Content EOF recovery = (%q, %q, %+v), want f call only", content, thinking, calls)
+				}
+			} else {
+				content, thinking, calls := toolCallParserOutput(t, output)
+				if content != "" || thinking != text || len(calls) != 0 {
+					t.Errorf("Thinking wrapper = (%q, %q, %+v), want immediate literal reasoning", content, thinking, calls)
+				}
+			}
+			if output := parser.Finish(); len(output) != 0 {
+				t.Errorf("repeated Finish = %+v, want empty", output)
+			}
+		})
+	}
+}
+
+func TestToolCallParserInstancesAreIndependent(t *testing.T) {
+	a, b := NewToolCallParser(nil), NewToolCallParser(nil)
+	input := directedToolCallEvents([]string{" to=functions.a"}, []string{`{"x":1}`}, false)
+	if output := feedToolCallParser(t, a, input); len(output) != 0 {
+		t.Fatalf("a before EOF = %+v", output)
+	}
+	b.Feed(thinkfsm.Event{Kind: thinkfsm.EnterThinking})
+	bOutput := b.Feed(thinkfsm.Event{Kind: thinkfsm.Thinking, Text: "reason {"})
+	b.Feed(thinkfsm.Event{Kind: thinkfsm.ToolCallEnd})
+	_, _, calls := toolCallParserOutput(t, a.Finish())
+	if !callsEqual(calls, []toolCallFn{{Name: "a", Arguments: `{"x":1}`}}) {
+		t.Errorf("a calls = %+v", calls)
+	}
+	content, thinking, calls := toolCallParserOutput(t, append(bOutput, b.Finish()...))
+	if content != "" || thinking != "reason {" || len(calls) != 0 {
+		t.Errorf("b output = (%q, %q, %+v), want independent thinking", content, thinking, calls)
+	}
+}
+
+func TestToolCallParserGPTOSSAbandonedRecipientDoesNotSuppressFreshCall(t *testing.T) {
+	for _, prefix := range []struct {
+		name   string
+		tokens []string
+	}{
+		{"role", []string{"<|start|>", "assistant", " to"}},
+		{"analysis", []string{"<|channel|>", "analysis", " to"}},
+		{"final", []string{"<|channel|>", "final", " to"}},
+		{"commentary", []string{"<|channel|>", "comment", "ary", " to"}},
+	} {
+		for _, exit := range []struct {
+			name   string
+			tokens []string
+		}{
+			{"unmatched then end", []string{"x", "<|end|>"}},
+			{"unmatched then empty body", []string{"x", "<|message|>", "<|end|>"}},
+			{"empty ordinary body", []string{"<|message|>", "<|end|>"}},
+		} {
+			t.Run(prefix.name+"/"+exit.name, func(t *testing.T) {
+				parser, splitter := NewToolCallParser(nil), thinkfsm.New()
+				tokens := append(append([]string(nil), prefix.tokens...), exit.tokens...)
+				tokens = append(tokens, "<|start|>", "assistant", " to", "=", "functions", ".f", "<|channel|>", "analysis", "<|message|>", "{}", "<|call|>")
+				var output []ToolCallEvent
+				for _, token := range tokens {
+					ev := splitter.Feed(token)
+					switch ev.Kind {
+					case thinkfsm.EnterThinking, thinkfsm.LeaveThinking, thinkfsm.ToolCallStart, thinkfsm.ToolCallEnd:
+						if ev.Text != "" {
+							t.Errorf("token %q: boundary = %+v, want empty text", token, ev)
 						}
 					}
-					from = hold // what a step emits up to
-					if end < 0 {
-						break
-					}
-					from = end // or consumes through
+					output = append(output, parser.Feed(ev)...)
 				}
-				if j == len(resp) {
-					break
+				output = append(output, parser.Finish()...)
+				content, thinking, calls := toolCallParserOutput(t, output)
+				if content != "" || thinking != "" || !callsEqual(calls, []toolCallFn{{Name: "f", Arguments: "{}"}}) {
+					t.Errorf("output = (%q, %q, %+v), want one fresh f call with {} and no display text", content, thinking, calls)
 				}
-			}
+				if events := parser.Finish(); len(events) != 0 {
+					t.Errorf("second Finish = %+v, want empty", events)
+				}
+			})
 		}
-	}
-}
-
-// The first whole marker, else the earliest tail still a prefix of one.
-func TestMarkerScan(t *testing.T) {
-	tests := []struct {
-		name        string
-		marker      string
-		s           string
-		start, done int
-	}{
-		{"empty", "<ab>", "", 0, 0},
-		{"no candidate", "<ab>", "plain prose", 11, 0},
-		{"whole marker", "<ab>", "hi <ab> there", 3, 7},
-		{"partial at end", "<ab>", "hi <a", 3, 0},
-		{"partial refuted", "<ab>", "hi <xy", 6, 0},
-		{"restart inside a candidate", "<ab>", "<<ab>", 1, 5},
-		{"overlapping restart", "aab", "aaab", 1, 4},
-		{"first of two", "<ab>", "<ab> x <ab>", 0, 4},
-		{"stops at the first match", "<ab>", "<ab>zzz", 0, 4},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			for size := 1; size <= max(len(tt.s), 1); size++ {
-				m := &markerScan{marker: tt.marker}
-				for i := 0; i < len(tt.s); i += size {
-					m.feed(tt.s[:min(i+size, len(tt.s))])
-				}
-				if m.start != tt.start || m.done != tt.done {
-					t.Errorf("size %d: (start, done) = (%d, %d), want (%d, %d)",
-						size, m.start, m.done, tt.start, tt.done)
-				}
-			}
-		})
-	}
-}
-
-// A region is reported only once both markers are in, and repeated until from
-// moves past it.
-func TestMarkerFormatFeed(t *testing.T) {
-	tests := []struct {
-		name            string
-		s               string
-		wantAt, wantEnd int
-	}{
-		{"prose", "nothing here", -1, -1},
-		{"partial open", "prose <tool_c", 6, -1},
-		{"open only", "prose <tool_call>{}", 6, -1},
-		{"both markers", "hi <tool_call>x</tool_call>!", 3, 27},
-		{"refuted prefix", "prose <tool_callx", -1, -1},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			m := newMarkerFormat("<tool_call>", "</tool_call>")
-			at, end := m.feed(tt.s, 0)
-			if at != tt.wantAt || end != tt.wantEnd {
-				t.Errorf("feed(%q) = (%d, %d), want (%d, %d)", tt.s, at, end, tt.wantAt, tt.wantEnd)
-			}
-		})
-	}
-}
-
-// Each format added puts another marker scan on the prose case, which is the one
-// that has to stay fast. 4 bytes per Push stands in for a model token.
-func BenchmarkToolCallScanner(b *testing.B) {
-	prose := strings.Repeat("The quick brown fox jumps over the lazy dog. ", 100)
-	call := `{"name": "write_file", "arguments": {"path": "a.go", "body": "` +
-		strings.Repeat("x", 4096) + `"}}`
-	// A stray brace in prose holds everything after it: the worst case.
-	held := "here is the code {\n" + strings.Repeat("\tdoSomething(a, b)\n", 1500)
-
-	for _, bb := range []struct{ name, resp string }{
-		{"prose", prose},
-		{"call", prose[:200] + call},
-		{"two_calls", prose[:200] + call + " and then " + call},
-		{"wrapped", prose[:200] + "<tool_call>" + call + "</tool_call>" + prose[:200]},
-		{"held", held},
-	} {
-		b.Run(bb.name, func(b *testing.B) {
-			b.SetBytes(int64(len(bb.resp)))
-			for b.Loop() {
-				s := NewToolCallScanner(nil)
-				for i := 0; i < len(bb.resp); i += 4 {
-					s.Push(bb.resp[i:min(i+4, len(bb.resp))])
-				}
-				s.Tail()
-			}
-		})
 	}
 }

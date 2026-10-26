@@ -216,15 +216,7 @@ func TestLFM2ToolCallStream(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for size := 1; size <= 8; size++ {
-				text, calls := stream(tt.resp, size)
-				if text != tt.wantText {
-					t.Errorf("size %d: text = %q, want %q", size, text, tt.wantText)
-				}
-				if !callsEqual(calls, tt.wantCalls) {
-					t.Errorf("size %d: calls = %+v, want %+v", size, calls, tt.wantCalls)
-				}
-			}
+			checkToolCallScanner(t, tt.resp, tt.wantText, tt.wantCalls, nil)
 		})
 	}
 }
