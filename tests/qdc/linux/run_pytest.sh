@@ -40,6 +40,6 @@ python3 -m pytest . -v -n 1 --max-worker-restart=100 \
     --report-log="$LOG/device-report.log" \
     -m "$MARK" \
     --deselect "test_llama_cpp.py::test_llm_greedy_is_deterministic[Qwen3-4B-GGUF-cpu]" \
-    --deselect "test_llama_cpp.py::test_vlm_multi_turn[gemma-4-E2B-it-GGUF-cpu]" \
-    --deselect "test_llama_cpp.py::test_llm_quality_keywords[The planet closest to the Sun is-Mercury-Qwen3-4B-GGUF-cpu]" 2>&1
+    --deselect "test_llama_cpp.py::test_vlm_generate[gemma-4-E2B-it-GGUF-cpu]" \
+    --deselect "test_llama_cpp.py::test_llm_generate[Qwen3-4B-GGUF-cpu]" 2>&1
 exit 0

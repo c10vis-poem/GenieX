@@ -22,21 +22,22 @@ tests/
 Every plugin file ships the same behavioural cases, plus an explicit
 model-manager-pull check that runs first:
 
-| Test                             | What it proves                                                     |
-|----------------------------------|--------------------------------------------------------------------|
-| `test_model_manager_pull`        | AI Hub / HuggingFace pull for every model this file needs works.   |
-| `test_llm_multi_turn`            | Two-turn "Alice" conversation; turn-2 must recall the name.        |
-| `test_llm_greedy_is_deterministic` | Same prompt under two seeds decodes to byte-identical text.       |
-| `test_vlm_multi_turn`            | Two-turn conversation with an image on turn 1.                     |
-| `test_llm_quality_keywords`      | Greedy decode, 3 short Q/A; keyword substring must land.           |
-| `test_vlm_quality_keywords`      | Golden-retriever caption must match one of the canonical keywords. |
-| `test_mtp_multi_turn`            | (llama_cpp only) same "Alice" convo with `spec_type='draft-mtp'`.  |
+| Test                               | What it proves                                                                                   |
+|------------------------------------|--------------------------------------------------------------------------------------------------|
+| `test_model_manager_pull`          | AI Hub / HuggingFace pull for every model this file needs works.                                 |
+| `test_llm_generate`                | Two-turn "Alice" recall, then 3 greedy Q/A whose keyword must land — one load.                   |
+| `test_llm_greedy_is_deterministic` | Two fresh loads under different seeds decode byte-identical text (qairt: and identical logits). |
+| `test_vlm_generate`                | Golden-retriever caption keyword, then a two-turn image conversation — one load.                 |
+| `test_chat_template`               | ChatML sentinels, `enable_thinking`, tools list vs JSON string (llama_cpp: tool response).       |
+| `test_mtp_multi_turn`              | (llama_cpp only) same "Alice" convo with `spec_type='draft-mtp'`.                                |
 
 Behavioural cases are parametrised over `(model, device_map)` pairs from
 `models.json`, so which backends run is a property of the model entry.
 Template / contract cases (ChatML sentinels, `enable_thinking`, tools
 rendering, mtmd markers) stay pinned to the role's first entry — they assert
-tokenizer specifics of one model. Model-manager pull failures are treated as
+tokenizer specifics of one model. Cases that only differ in what they assert
+on the same model load are merged into one case, because on device the load
+costs more than the assertions. Model-manager pull failures are treated as
 FAIL, not SKIP, so a broken download surfaces as a red CI leg instead of a
 silent green skip.
 
@@ -110,7 +111,7 @@ switch.
 The primary LLM is Qwen3-4B **base**, not Instruct-2507: Instruct-2507 emits a
 long `<think>` preamble before the answer that, on the 256-token budget the
 suite uses, pushes the keyword off the end of the completion and turns
-`test_llm_quality_keywords` into a thinking-budget test rather than a
+`test_llm_generate` into a thinking-budget test rather than a
 backend-quality test.
 
 Swap models via `env_override` per entry, or `GENIEX_TEST_MODELS` for the whole
