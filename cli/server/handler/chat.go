@@ -405,7 +405,7 @@ func runChat[T, M any](c *gin.Context, param ChatCompletionRequest, modelParam t
 			return
 		}
 		logProfile(profile)
-		writeBlockingResponse(c, &content, &reasoning, profile, finishToolCalls)
+		writeBlockingResponse(c, &content, &reasoning, profile, finishToolCalls, string(param.Model))
 	}
 }
 

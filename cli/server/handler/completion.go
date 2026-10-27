@@ -210,7 +210,7 @@ func Completions(c *gin.Context) {
 		}()
 
 		wait := func() error { wg.Wait(); return genErr }
-		streamCompletion(c, dataCh, wait, req.StreamOptions.IncludeUsage.Value, echo, &profile)
+		streamCompletion(c, dataCh, wait, req.StreamOptions.IncludeUsage.Value, echo, &profile, string(req.Model))
 
 		stopGen.Store(true)
 		for range dataCh {
@@ -232,7 +232,7 @@ func Completions(c *gin.Context) {
 			return
 		}
 		logProfile(out.ProfileData)
-		writeCompletionResponse(c, echo+out.FullText, out.ProfileData)
+		writeCompletionResponse(c, echo+out.FullText, out.ProfileData, string(req.Model))
 	}
 }
 
@@ -245,6 +245,7 @@ type completionStreamChoice struct {
 }
 
 type completionStreamChunk struct {
+	responseMetadata
 	Object  string                   `json:"object"`
 	Choices []completionStreamChoice `json:"choices"`
 	Usage   *openai.CompletionUsage  `json:"usage,omitempty"`
@@ -272,17 +273,24 @@ func completionUsageChunk(u openai.CompletionUsage, t timings) completionStreamC
 }
 
 // profile is read only after wait() returns, when generation has filled it.
-func streamCompletion(c *gin.Context, dataCh <-chan string, wait func() error, includeUsage bool, echo string, profile *geniex_sdk.ProfileData) {
+func streamCompletion(c *gin.Context, dataCh <-chan string, wait func() error, includeUsage bool, echo string, profile *geniex_sdk.ProfileData, model string) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	meta := newResponseMetadata("cmpl", model)
+	send := func(chunk completionStreamChunk) {
+		chunk.responseMetadata = meta
+		c.SSEvent("", chunk)
+	}
 	first := echo != ""
 	c.Stream(func(w io.Writer) bool {
 		if first {
 			first = false
-			c.SSEvent("", completionTextChunk(echo))
+			send(completionTextChunk(echo))
 			return true
 		}
 		r, ok := <-dataCh
 		if ok {
-			c.SSEvent("", completionTextChunk(r))
+			send(completionTextChunk(r))
 			return true
 		}
 		// A context window exhausted mid-stream is a normal truncated completion:
@@ -292,9 +300,9 @@ func streamCompletion(c *gin.Context, dataCh <-chan string, wait func() error, i
 			return false
 		}
 		logProfile(*profile)
-		c.SSEvent("", completionFinishChunk(mapFinishReason(profile.StopReason)))
+		send(completionFinishChunk(mapFinishReason(profile.StopReason)))
 		if includeUsage {
-			c.SSEvent("", completionUsageChunk(profile2Usage(*profile), profile2Timings(*profile)))
+			send(completionUsageChunk(profile2Usage(*profile), profile2Timings(*profile)))
 		}
 		c.SSEvent("", "[DONE]")
 		return false
@@ -310,15 +318,17 @@ type completionChoice struct {
 }
 
 type completionResponse struct {
+	responseMetadata
 	Object  string                 `json:"object"`
 	Choices []completionChoice     `json:"choices"`
 	Usage   openai.CompletionUsage `json:"usage"`
 	Timings timings                `json:"timings"`
 }
 
-func writeCompletionResponse(c *gin.Context, text string, profile geniex_sdk.ProfileData) {
+func writeCompletionResponse(c *gin.Context, text string, profile geniex_sdk.ProfileData, model string) {
 	c.JSON(http.StatusOK, completionResponse{
-		Object: completionObject,
+		responseMetadata: newResponseMetadata("cmpl", model),
+		Object:           completionObject,
 		Choices: []completionChoice{{
 			Text:         text,
 			FinishReason: mapFinishReason(profile.StopReason),

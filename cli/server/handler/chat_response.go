@@ -70,6 +70,7 @@ type blockingChoice struct {
 }
 
 type blockingResponse struct {
+	responseMetadata
 	Object  string                 `json:"object"`
 	Choices []blockingChoice       `json:"choices"`
 	Usage   openai.CompletionUsage `json:"usage"`
@@ -83,7 +84,8 @@ type chatCompletionWithTimings struct {
 	Timings timings `json:"timings"`
 }
 
-func writeBlockingResponse(c *gin.Context, contentBuilder, reasoningBuilder *strings.Builder, profile geniex_sdk.ProfileData, finish func() []openai.ChatCompletionMessageFunctionToolCallFunction) {
+func writeBlockingResponse(c *gin.Context, contentBuilder, reasoningBuilder *strings.Builder, profile geniex_sdk.ProfileData, finish func() []openai.ChatCompletionMessageFunctionToolCallFunction, model string) {
+	meta := newResponseMetadata("chatcmpl", model)
 	calls := finish()
 	content, reasoning := contentBuilder.String(), reasoningBuilder.String()
 	finishReason := mapFinishReason(profile.StopReason)
@@ -110,6 +112,9 @@ func writeBlockingResponse(c *gin.Context, contentBuilder, reasoningBuilder *str
 		}
 		c.JSON(http.StatusOK, chatCompletionWithTimings{
 			ChatCompletion: openai.ChatCompletion{
+				ID:      meta.ID,
+				Created: meta.Created,
+				Model:   meta.Model,
 				Choices: []openai.ChatCompletionChoice{choice},
 				Usage:   profile2Usage(profile),
 			},
@@ -119,7 +124,8 @@ func writeBlockingResponse(c *gin.Context, contentBuilder, reasoningBuilder *str
 	}
 
 	c.JSON(http.StatusOK, blockingResponse{
-		Object: "chat.completion",
+		responseMetadata: meta,
+		Object:           "chat.completion",
 		Choices: []blockingChoice{{
 			Message: blockingMessage{
 				Role:             string(openai.MessageRoleAssistant),

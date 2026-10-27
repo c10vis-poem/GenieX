@@ -172,7 +172,7 @@ Generates a raw continuation of `prompt` with no chat template applied — the p
 }
 ```
 
-The response `choices[0].text` is the raw completion, ready to insert at the cursor. `stream`, `stop`, `echo` and the sampler knobs (`temperature`, `top_p`, `top_k`, `min_p`, `repetition_penalty`, `seed`) work as on `/v1/chat/completions`; `suffix` is not supported — encode the suffix with the model's FIM tokens inside `prompt` instead.
+The response `choices[0].text` is the raw completion, ready to insert at the cursor. Blocking responses include the top-level OpenAI `id`, `created` (Unix seconds), and requested `model`; in streaming mode each normal SSE chunk shares those fields and the same response ID. `stream`, `stop`, `echo` and the sampler knobs (`temperature`, `top_p`, `top_k`, `min_p`, `repetition_penalty`, `seed`) work as on `/v1/chat/completions`; `suffix` is not supported — encode the suffix with the model's FIM tokens inside `prompt` instead.
 
 ## **POST /v1/decisions**
 
@@ -292,6 +292,8 @@ Hello! I'm Qwen, a large language model developed by Alibaba Cloud. I can help w
 finish_reason: stop
 usage: CompletionUsage(completion_tokens=58, prompt_tokens=19, total_tokens=77, ...)
 ```
+
+Blocking chat responses include the top-level OpenAI `id`, `created` (Unix seconds), and requested `model` fields, including responses with separated reasoning or tool calls.
 
 ### **Separating reasoning (reasoning_content)**
 

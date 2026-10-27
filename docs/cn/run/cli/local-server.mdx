@@ -129,7 +129,7 @@ curl http://127.0.0.1:18181/v1/chat/completions \
 }
 ```
 
-响应中的 `choices[0].text` 即原始补全内容，可直接插入光标处。`stream`、`stop`、`echo` 及采样参数（`temperature`、`top_p`、`top_k`、`min_p`、`repetition_penalty`、`seed`）与 `/v1/chat/completions` 行为一致；不支持 `suffix` —— 请改用模型的 FIM 标记把后缀编码进 `prompt`。
+响应中的 `choices[0].text` 即原始补全内容，可直接插入光标处。非流式响应包含顶层 OpenAI `id`、`created`（Unix 秒时间戳）和请求中的 `model`；流式模式下，每个正常 SSE chunk 都包含相同的这些字段和 response ID。`stream`、`stop`、`echo` 及采样参数（`temperature`、`top_p`、`top_k`、`min_p`、`repetition_penalty`、`seed`）与 `/v1/chat/completions` 行为一致；不支持 `suffix` —— 请改用模型的 FIM 标记把后缀编码进 `prompt`。
 
 ## **POST /v1/decisions**
 
@@ -249,6 +249,8 @@ Hello! I'm Qwen, a large language model developed by Alibaba Cloud. I can help w
 finish_reason: stop
 usage: CompletionUsage(completion_tokens=58, prompt_tokens=19, total_tokens=77, ...)
 ```
+
+非流式 Chat 响应包含顶层 OpenAI `id`、`created`（Unix 秒时间戳）和请求中的 `model` 字段；有分离推理内容或工具调用时也一样。
 
 ### **分离推理内容（reasoning_content）**
 

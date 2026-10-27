@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/openai/openai-go/v3"
@@ -49,10 +48,9 @@ const streamChunkObject = "chat.completion.chunk"
 func newStreamWriter(c *gin.Context, model string) func(streamChunk) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
-	id := fmt.Sprintf("chatcmpl-%016x", rand.Uint64())
-	created := time.Now().Unix()
+	meta := newResponseMetadata("chatcmpl", model)
 	return func(chunk streamChunk) {
-		chunk.ID, chunk.Created, chunk.Model = id, created, model
+		chunk.ID, chunk.Created, chunk.Model = meta.ID, meta.Created, meta.Model
 		c.SSEvent("", chunk)
 	}
 }

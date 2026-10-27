@@ -46,6 +46,7 @@ func TestWriteBlockingResponse(t *testing.T) {
 		stop, finish       string
 	}{
 		{name: "text only", content: "hello", stop: "eos", finish: "stop"},
+		{name: "empty response", stop: "eos", finish: "stop"},
 		{name: "empty display with a call", calls: []openai.ChatCompletionMessageFunctionToolCallFunction{call}, stop: "eos", finish: "tool_calls"},
 		{name: "prose with a call", content: "sure  done", calls: []openai.ChatCompletionMessageFunctionToolCallFunction{call}, stop: "eos", finish: "tool_calls"},
 		{name: "parallel calls", calls: []openai.ChatCompletionMessageFunctionToolCallFunction{call, call}, stop: "eos", finish: "tool_calls"},
@@ -53,6 +54,7 @@ func TestWriteBlockingResponse(t *testing.T) {
 		{name: "reasoning without a call", content: "hello", reasoning: "let me check", stop: "eos", finish: "stop"},
 		{name: "truncated text", content: "partial", stop: "length", finish: "length"},
 	}
+	seen := map[string]bool{}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
@@ -69,7 +71,12 @@ func TestWriteBlockingResponse(t *testing.T) {
 				reasoning.WriteString(tc.reasoning)
 				return tc.calls
 			}
-			writeBlockingResponse(c, &content, &reasoning, profile, finish)
+			writeBlockingResponse(c, &content, &reasoning, profile, finish, "test-model")
+			meta := checkResponseMetadata(t, w.Body.Bytes(), "chatcmpl", "test-model")
+			if seen[meta.ID] {
+				t.Fatalf("reused response ID %q", meta.ID)
+			}
+			seen[meta.ID] = true
 			if !finished {
 				t.Error("response did not finalize the parser")
 			}
@@ -144,7 +151,8 @@ func TestChatResponsesFinalizeParserAtEOF(t *testing.T) {
 					w := httptest.NewRecorder()
 					c, _ := gin.CreateTestContext(w)
 					profile := geniex_sdk.ProfileData{StopReason: stop.reason}
-					writeBlockingResponse(c, &content, &thought, profile, finish)
+					writeBlockingResponse(c, &content, &thought, profile, finish, "test-model")
+					checkResponseMetadata(t, w.Body.Bytes(), "chatcmpl", "test-model")
 					var got blockingBody
 					if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 						t.Fatal(err)
