@@ -6,8 +6,10 @@ package handler
 import (
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -127,6 +129,41 @@ func TestBuildVLMMessagesKeepsToolRoundTrip(t *testing.T) {
 	}
 	if len(tool.Contents) != 1 || tool.Contents[0].Text != "numerics-summary.txt" {
 		t.Errorf("tool contents = %+v", tool.Contents)
+	}
+}
+
+func TestBuildVLMMessagesRejectsBadMediaAndCleansPartialFiles(t *testing.T) {
+	tmp := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, tmp)
+	}
+	imagePath := filepath.Join(tmp, "image.png")
+	if err := os.WriteFile(imagePath, []byte("image bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct{ name, content string }{
+		{"missing local image", fmt.Sprintf(`{"type":"image_url","image_url":{"url":%q}}`, filepath.Join(tmp, "missing.png"))},
+		{"invalid base64 audio", `{"type":"input_audio","input_audio":{"data":"not-base64!","format":"wav"}}`},
+		{"later input error after a saved image", fmt.Sprintf(`{"type":"image_url","image_url":{"url":%q}},{"type":"input_audio","input_audio":{"data":"bad!","format":"wav"}}`, imagePath)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, param := bindRequest(t, `{"model":"m","messages":[{"role":"user","content":[`+tc.content+`]}]}`)
+			messages, tempFiles, ok := buildVLMMessages(c, param)
+			if ok || messages != nil || tempFiles != nil {
+				t.Fatalf("buildVLMMessages = %+v, %v, %v; want nil, nil, false", messages, tempFiles, ok)
+			}
+			if got := c.Writer.Status(); got != http.StatusBadRequest {
+				t.Errorf("HTTP status = %d, want 400", got)
+			}
+			entries, err := os.ReadDir(tmp)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 1 || entries[0].Name() != "image.png" {
+				t.Errorf("temp dir entries = %v, want only the source image", entries)
+			}
+		})
 	}
 }
 

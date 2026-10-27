@@ -459,7 +459,11 @@ int32_t LlamaVlm::generate(const geniex_VlmGenerateInput* input, geniex_VlmGener
     // Bitmap loading and tokenization fall outside both media_time and
     // prompt_time (only the chunk loop below is timed), so they show up in ttft.
     std::vector<mtmd_bitmap*> bitmaps;
-    int                       n_media = 0;
+    int                       n_media      = 0;
+    auto                      free_bitmaps = [&]() {
+        for (auto* bmp : bitmaps) mtmd_bitmap_free(bmp);
+        bitmaps.clear();
+    };
 
     if (input->config && input->config->image_paths && input->config->image_count > 0 && this->ctx_vision) {
         if (!this->supports_vision) {
@@ -476,7 +480,9 @@ int32_t LlamaVlm::generate(const geniex_VlmGenerateInput* input, geniex_VlmGener
                         n_media++;
                         GENIEX_LOG_DEBUG("successfully loaded image {}: {}", i, input->config->image_paths[i]);
                     } else {
-                        GENIEX_LOG_DEBUG("failed to load image {}: {}", i, input->config->image_paths[i]);
+                        GENIEX_LOG_ERROR("failed to load image {}: {}", i, input->config->image_paths[i]);
+                        free_bitmaps();
+                        return GENIEX_ERROR_VLM_IMAGE_LOAD;
                     }
                 }
             }
@@ -499,7 +505,9 @@ int32_t LlamaVlm::generate(const geniex_VlmGenerateInput* input, geniex_VlmGener
                         n_media++;
                         GENIEX_LOG_DEBUG("successfully loaded audio {}: {}", i, input->config->audio_paths[i]);
                     } else {
-                        GENIEX_LOG_DEBUG("failed to load audio {}: {}", i, input->config->audio_paths[i]);
+                        GENIEX_LOG_ERROR("failed to load audio {}: {}", i, input->config->audio_paths[i]);
+                        free_bitmaps();
+                        return GENIEX_ERROR_VLM_AUDIO_LOAD;
                     }
                 }
             }

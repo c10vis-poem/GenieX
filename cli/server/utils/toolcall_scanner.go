@@ -4,6 +4,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"log/slog"
 	"math/big"
 	"strings"
@@ -241,7 +242,7 @@ func toolArgumentValue(value, kind string) string {
 		return quoted
 	}
 	raw := strings.TrimSpace(value)
-	if sonic.ValidString(raw) {
+	if json.Valid([]byte(raw)) {
 		parsed, err := sonic.GetFromString(raw)
 		if err == nil {
 			matches := false

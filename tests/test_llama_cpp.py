@@ -35,6 +35,8 @@ from _quality_data import (
     parity_top1_agreement,
 )
 
+GENIEX_ERROR_VLM_IMAGE_LOAD = -201001
+
 _LLM = primary('llama_cpp_llm')
 _VLM = primary('llama_cpp_vlm')
 _MTP_TARGET = primary('llama_cpp_mtp_target')
@@ -573,6 +575,33 @@ def test_mtmd_markers(llama_cpp_vlm_paths, test_image, quality_image, device_map
         assert 'describe the picture' in prompt
     assert _MEDIA_MARKER not in text_only
     assert 'plain text, no image' in text_only
+
+
+@pytest.mark.vlm
+@pytest.mark.parametrize('device_map', ['cpu'])
+def test_mtmd_generate_rejects_undecodable_image_and_recovers(llama_cpp_vlm_paths, test_image, device_map, tmp_path):
+    corrupt = tmp_path / 'corrupt.jpg'
+    corrupt.write_bytes(b'not a decodable image')
+
+    with geniex.AutoModelForVision2Seq.from_pretrained(
+        _VLM.id,
+        precision=_VLM.precision,
+        device_map=device_map,
+    ) as vlm:
+        prompt = _vlm_prompt(vlm, test_image, 'describe the picture')
+        with pytest.raises(geniex.GenieXError) as error:
+            vlm.generate(prompt, images=[str(corrupt)])
+        assert error.value.code == GENIEX_ERROR_VLM_IMAGE_LOAD
+
+        # A failed media load must leave the same model usable for valid media.
+        recovered = vlm.generate(
+            prompt,
+            images=[test_image],
+            max_new_tokens=1,
+            temperature=GREEDY_TEMPERATURE,
+            seed=42,
+        )
+    assert recovered.profile.prompt_tokens > 0
 
 
 @pytest.mark.vlm

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -157,8 +158,16 @@ func buildLLMMessages(c *gin.Context, param ChatCompletionRequest) (messages []g
 }
 
 // Image / audio data is spilled to tempFiles, which the caller must remove
-// after generation (returned on the error path too, for partial writes).
+// after generation. On failure, files already written are removed here.
 func buildVLMMessages(c *gin.Context, param ChatCompletionRequest) (messages []geniex_sdk.VlmChatMessage, tempFiles []string, ok bool) {
+	defer func() {
+		if !ok {
+			for _, file := range tempFiles {
+				_ = os.Remove(file)
+			}
+			tempFiles = nil
+		}
+	}()
 	messages = make([]geniex_sdk.VlmChatMessage, 0, len(param.Messages))
 	for _, msg := range param.Messages {
 		if len(msg.GetToolCalls()) > 0 {
@@ -218,7 +227,7 @@ func buildVLMMessages(c *gin.Context, param ChatCompletionRequest) (messages []g
 					file, err := utils.SaveURIToTempFile(ct.GetImageURL().URL)
 					slog.Debug("Saved image file", "file", file)
 					if err != nil {
-						c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+						c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 						return nil, tempFiles, false
 					}
 					tempFiles = append(tempFiles, file)
@@ -235,7 +244,7 @@ func buildVLMMessages(c *gin.Context, param ChatCompletionRequest) (messages []g
 					file, err := utils.SaveURIToTempFile(data)
 					slog.Debug("Saved audio file", "file", file)
 					if err != nil {
-						c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+						c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 						return nil, tempFiles, false
 					}
 					tempFiles = append(tempFiles, file)

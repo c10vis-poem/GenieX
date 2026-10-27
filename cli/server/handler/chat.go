@@ -189,6 +189,16 @@ func chatGenerationConfig(req ChatCompletionRequest, sampler *geniex_sdk.Sampler
 // return the formatted prompt plus a generateFn.
 type prepareFn[T, M any] func(p *T, input prepareInput[M]) (prompt string, gen generateFn, err error)
 
+func writeChatExecutionError(c *gin.Context, err error) {
+	status := http.StatusInternalServerError
+	if errors.Is(err, geniex_sdk.ErrCommonInvalidInput) ||
+		errors.Is(err, geniex_sdk.ErrVlmImageLoad) ||
+		errors.Is(err, geniex_sdk.ErrVlmAudioLoad) {
+		status = http.StatusBadRequest
+	}
+	c.JSON(status, map[string]any{"error": err.Error(), "code": geniex_sdk.SDKErrorCode(err)})
+}
+
 func prepareLLM(p *geniex_sdk.LLM, input prepareInput[[]geniex_sdk.LlmChatMessage]) (string, generateFn, error) {
 	formatted, err := p.ApplyChatTemplate(geniex_sdk.LlmApplyChatTemplateInput{
 		Messages:            input.Messages,
@@ -331,7 +341,7 @@ func runChat[T, M any](c *gin.Context, param ChatCompletionRequest, modelParam t
 		Fresh:    acquired.Fresh,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error(), "code": geniex_sdk.SDKErrorCode(err)})
+		writeChatExecutionError(c, err)
 		return
 	}
 
@@ -405,7 +415,7 @@ func runChat[T, M any](c *gin.Context, param ChatCompletionRequest, modelParam t
 			return
 		}
 		if err != nil && !errors.Is(err, geniex_sdk.ErrLlmTokenizationContextLength) {
-			c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error(), "code": geniex_sdk.SDKErrorCode(err)})
+			writeChatExecutionError(c, err)
 			return
 		}
 		logProfile(profile)

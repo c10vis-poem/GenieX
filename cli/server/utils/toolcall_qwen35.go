@@ -4,6 +4,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/bytedance/sonic"
@@ -112,7 +113,7 @@ func parseQwen35Params(body string) string {
 // The tags stand on their own lines, so one line break on each side is syntax.
 func parseQwen35Value(v string) string {
 	v = strings.TrimSuffix(strings.TrimPrefix(v, "\n"), "\n")
-	if trimmed := strings.TrimSpace(v); trimmed != "" && sonic.ValidString(trimmed) {
+	if trimmed := strings.TrimSpace(v); trimmed != "" && json.Valid([]byte(trimmed)) {
 		return trimmed
 	}
 	quoted, _ := sonic.MarshalString(v)
