@@ -39,6 +39,7 @@ go_cgo_test(
     name = "handler_test",
     srcs = [
         "chat_messages_test.go",
+        "chat_ministral3_test.go",
         "chat_response_test.go",
         "chat_sse_protocol_test.go",
         "chat_stream_test.go",

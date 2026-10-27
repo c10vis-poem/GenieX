@@ -158,6 +158,51 @@ func TestOrdinaryModelParsing(t *testing.T) {
 	})
 }
 
+func TestMinistral3Parsing(t *testing.T) {
+	checkCases(t, []parseCase{
+		{
+			name:   "thinking and answer",
+			tokens: []string{"[THINK]", "reason", "[/THINK]", "answer"},
+			kinds:  []EventKind{EnterThinking, Thinking, LeaveThinking, Content},
+		},
+		{
+			name:   "empty thinking",
+			tokens: []string{"[THINK]", "[/THINK]", "answer"},
+			kinds:  []EventKind{EnterThinking, LeaveThinking, Content},
+		},
+		{
+			name:   "unterminated thinking",
+			tokens: []string{"[THINK]", "reason"},
+			kinds:  []EventKind{EnterThinking, Thinking},
+		},
+		{
+			name:   "tool syntax inside thinking stays literal",
+			tokens: []string{"[THINK]", "[TOOL_CALLS]", "f", "[ARGS]", "{}", "[/THINK]", "[TOOL_CALLS]", "g", "[ARGS]", "{}"},
+			kinds:  []EventKind{EnterThinking, Thinking, Thinking, Thinking, Thinking, LeaveThinking, Content, Content, Content, Content},
+		},
+		{
+			name:   "foreign markers stay literal",
+			tokens: []string{"[THINK]", "<think>", "</think>", "<|channel|>", "[/THINK]", "[THINK]", "[/THINK]"},
+			kinds:  []EventKind{EnterThinking, Thinking, Thinking, Thinking, LeaveThinking, Content, Content},
+		},
+		{
+			name:   "Ministral closing marker cannot end ordinary thinking",
+			tokens: []string{"<think>", "[/THINK]", "</think>"},
+			kinds:  []EventKind{EnterThinking, Thinking, LeaveThinking},
+		},
+		{
+			name:   "unmatched closing marker",
+			tokens: []string{"[/THINK]", "answer"},
+			kinds:  []EventKind{Content, Content},
+		},
+		{
+			name:   "no splitting or buffering",
+			tokens: []string{"[TH", "INK]", "[THINK]reason[/THINK]"},
+			kinds:  []EventKind{Content, Content, Content},
+		},
+	})
+}
+
 // GPT-OSS: token-wise channels, headers, message boundaries and recovery.
 func TestGPTOSSParsing(t *testing.T) {
 	t.Run("messages", func(t *testing.T) {
