@@ -41,7 +41,7 @@ func hostBindingHint(host string) string {
 // @Title		GenieX Server
 // @Version	0.0.0
 // @BasePath	/v1
-func Serve() {
+func Serve() error {
 	service.Init()
 	defer service.DeInit()
 
@@ -60,8 +60,7 @@ func Serve() {
 	if cfg.HTTPS {
 		for _, path := range []string{cfg.CertFile, cfg.KeyFile} {
 			if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-				fmt.Println(render.GetTheme().Error.Sprintf("HTTPS cert/key file not found: %s", path))
-				return
+				return fmt.Errorf("HTTPS cert/key file not found: %s", path)
 			}
 		}
 		listen = func() error { return srv.ListenAndServeTLS(cfg.CertFile, cfg.KeyFile) }
@@ -84,7 +83,7 @@ func Serve() {
 
 	select {
 	case err := <-errCh: // listen only returns on failure here
-		fmt.Println(render.GetTheme().Error.Sprintf("HTTP/HTTPS Server Error: %v", err))
+		return fmt.Errorf("HTTP/HTTPS Server Error: %w", err)
 	case <-sigCh:
 		fmt.Println(render.GetTheme().Info.Sprint("Shutting down, releasing model resources..."))
 		// Escape hatch for a teardown a stuck request holds up; the buffers leak.
@@ -95,4 +94,5 @@ func Serve() {
 		}()
 		srv.Shutdown(context.Background())
 	}
+	return nil
 }
