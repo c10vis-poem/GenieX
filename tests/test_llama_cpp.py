@@ -51,6 +51,7 @@ def test_model_manager_pull(cached, model):
     assert Path(paths.model_path).is_file(), f'{model.id}: model_path missing: {paths.model_path}'
 
 
+@pytest.mark.nightly
 def test_model_manager_pull_mtp(llama_cpp_mtp_paths):
     for name, paths in llama_cpp_mtp_paths.items():
         assert Path(paths.model_path).is_file(), f'mtp-{name}: model_path missing: {paths.model_path}'
@@ -78,42 +79,21 @@ def _run_multi_turn(llm) -> list[str]:
     return replies
 
 
-@pytest.mark.llm
-@pytest.mark.parametrize('device_map', _LLM.devices)
-def test_llm_repeated_chat_prompt_reuses_prefix(cached, device_map):
-    cached(_LLM)
-    with geniex.AutoModelForCausalLM.from_pretrained(
-        _LLM.id,
-        precision=_LLM.precision,
-        device_map=device_map,
-    ) as llm:
-        prompt = llm.tokenizer.apply_chat_template(
-            [
-                {'role': 'system', 'content': 'Answer in one short sentence.'},
-                {'role': 'user', 'content': 'Say hello briefly.'},
-            ],
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=False,
-        )
-        outputs = [
-            llm.generate(prompt, max_new_tokens=16, temperature=GREEDY_TEMPERATURE, seed=LLM_QUALITY_SEED)
-            for _ in range(3)
-        ]
-
-    for index, out in enumerate(outputs, start=1):
-        assert out.text, f'empty completion on identical prompt call {index}'
-        assert out.profile.generated_tokens > 0
-    prompt_tokens = outputs[0].profile.prompt_tokens
-    assert prompt_tokens > 1, f'expected a full initial prefill, got {prompt_tokens} tokens'
-    # Reusing the exact prompt must re-evaluate its last token for fresh logits.
-    assert outputs[1].profile.prompt_tokens == 1
-    assert outputs[2].profile.prompt_tokens == 1
+def _chat_prompt(llm, content: str) -> str:
+    return llm.tokenizer.apply_chat_template(
+        [
+            {'role': 'system', 'content': 'Answer in one short sentence.'},
+            {'role': 'user', 'content': content},
+        ],
+        tokenize=False,
+        add_generation_prompt=True,
+        enable_thinking=False,
+    )
 
 
 @pytest.mark.llm
 @pytest.mark.parametrize('device_map', _LLM.devices)
-def test_llm_prefix_cache_reuse_after_partial_rollback(cached, device_map):
+def test_llm_prefix_cache(cached, device_map):
     cached(_LLM)
     shared = 'Keep the label ORCHID. Branch details: '
     first = shared + ('amber ' * 80) + 'Say hello briefly.'
@@ -125,46 +105,69 @@ def test_llm_prefix_cache_reuse_after_partial_rollback(cached, device_map):
         precision=_LLM.precision,
         device_map=device_map,
     ) as llm:
-        prompts = [
-            llm.tokenizer.apply_chat_template(
-                [
-                    {'role': 'system', 'content': 'Answer in one short sentence.'},
-                    {'role': 'user', 'content': content},
-                ],
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=False,
+        repeated = _chat_prompt(llm, 'Say hello briefly.')
+        same = [
+            llm.generate(repeated, max_new_tokens=16, temperature=GREEDY_TEMPERATURE, seed=LLM_QUALITY_SEED)
+            for _ in range(3)
+        ]
+        llm.reset()
+        rollback = [
+            llm.generate(
+                _chat_prompt(llm, content), max_new_tokens=8, temperature=GREEDY_TEMPERATURE, seed=LLM_QUALITY_SEED
             )
             for content in (first, second, third)
         ]
-        outputs = [
-            llm.generate(prompt, max_new_tokens=8, temperature=GREEDY_TEMPERATURE, seed=LLM_QUALITY_SEED)
-            for prompt in prompts
-        ]
 
-    for index, out in enumerate(outputs, start=1):
-        assert out.text, f'empty completion on partial-rollback prompt call {index}'
+    for index, out in enumerate(same + rollback, start=1):
+        assert out.text, f'empty completion on call {index}'
         assert out.profile.generated_tokens > 0
-    first_tokens, second_tokens, third_tokens = (out.profile.prompt_tokens for out in outputs)
+    prompt_tokens = same[0].profile.prompt_tokens
+    assert prompt_tokens > 1, f'expected a full initial prefill, got {prompt_tokens} tokens'
+    # Reusing the exact prompt must re-evaluate its last token for fresh logits.
+    assert same[1].profile.prompt_tokens == 1
+    assert same[2].profile.prompt_tokens == 1
+    first_tokens, second_tokens, third_tokens = (out.profile.prompt_tokens for out in rollback)
     assert first_tokens > second_tokens > third_tokens > 0, (
         'expected full prefill, partial rollback, then reuse of the second prompt prefix; '
         f'prompt_tokens={first_tokens, second_tokens, third_tokens}'
     )
 
 
+def _quality_misses(llm, budget: int) -> list[str]:
+    misses = []
+    for prompt, expected in LLM_QUALITY_PROMPTS:
+        # Plugins carry KV / chat state across generate(); each prompt is its own conversation.
+        llm.reset()
+        formatted = llm.tokenizer.apply_chat_template(
+            [{'role': 'user', 'content': prompt}],
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+        out = llm.generate(formatted, max_new_tokens=budget, temperature=GREEDY_TEMPERATURE, seed=LLM_QUALITY_SEED)
+        # Greedy decode can loop until the budget runs out, so `length` is only a
+        # problem when it truncated before the keyword appeared.
+        if expected.lower() not in out.text.lower():
+            misses.append(f'{prompt!r} expected={expected!r} stop_reason={out.profile.stop_reason!r} got={out.text!r}')
+    return misses
+
+
 @pytest.mark.llm
 @pytest.mark.parametrize(('model', 'device_map'), _LLM_MATRIX)
-def test_llm_multi_turn(cached, model, device_map):
+def test_llm_generate(cached, model, device_map):
     cached(model)
+    budget = model.quality_max_new_tokens or LLM_QUALITY_MAX_NEW_TOKENS
     with geniex.AutoModelForCausalLM.from_pretrained(
         model.id,
         precision=model.precision,
         device_map=device_map,
     ) as llm:
         replies = _run_multi_turn(llm)
+        misses = _quality_misses(llm, budget)
     assert (
         'alice' in replies[-1].lower()
     ), f'model={model.id!r} device_map={device_map!r} expected reply to recall "Alice", got={replies[-1]!r}'
+    assert not misses, f'model={model.id!r} device_map={device_map!r} budget={budget} misses: ' + '; '.join(misses)
 
 
 @pytest.mark.llm
@@ -203,13 +206,23 @@ def test_llm_greedy_is_deterministic(cached, model, device_map):
 
 @pytest.mark.vlm
 @pytest.mark.parametrize(('model', 'device_map'), _VLM_MATRIX)
-def test_vlm_multi_turn(cached, model, test_image, device_map):
+def test_vlm_generate(cached, model, test_image, quality_image, device_map):
     cached(model)
     with geniex.AutoModelForVision2Seq.from_pretrained(
         model.id,
         precision=model.precision,
         device_map=device_map,
     ) as vlm:
+        caption = vlm.generate(
+            _vlm_prompt(vlm, quality_image, VLM_QUALITY_PROMPT),
+            max_new_tokens=model.quality_max_new_tokens or VLM_QUALITY_MAX_NEW_TOKENS,
+            temperature=GREEDY_TEMPERATURE,
+            seed=VLM_QUALITY_SEED,
+            images=[quality_image],
+        )
+
+        # llama_cpp VLM prompts are append-only; a new conversation needs a reset.
+        vlm.reset()
         history = [
             {
                 'role': 'user',
@@ -221,16 +234,23 @@ def test_vlm_multi_turn(cached, model, test_image, device_map):
         ]
         prompt1 = vlm.tokenizer.apply_chat_template(history, tokenize=False, add_generation_prompt=True)
         out1 = vlm.generate(prompt1, max_new_tokens=16, temperature=GREEDY_TEMPERATURE, seed=42, images=[test_image])
-        assert out1.profile.prompt_tokens > 0
-
         history.append({'role': 'assistant', 'content': out1.text or '...'})
         history.append({'role': 'user', 'content': [{'type': 'text', 'text': 'What color is it?'}]})
         prompt2 = vlm.tokenizer.apply_chat_template(history, tokenize=False, add_generation_prompt=True)
         # Second turn without a bitmap — old char-offset tracking sliced past the
         # image marker while an image was still supplied and mtmd_tokenize failed.
         out2 = vlm.generate(prompt2, max_new_tokens=16, temperature=GREEDY_TEMPERATURE, seed=42, images=[])
-        assert isinstance(out2, geniex.GenerateOutput)
-        assert out2.profile.prompt_tokens > 0
+
+    assert caption.text, f'empty caption for model={model.id!r} device_map={device_map!r}'
+    matched = any(kw in caption.text.lower() for kw in VLM_QUALITY_KEYWORDS)
+    assert matched, (
+        f'caption did not match any expected keyword '
+        f'model={model.id!r} device_map={device_map!r} keywords={VLM_QUALITY_KEYWORDS} '
+        f'got={caption.text!r}'
+    )
+    assert out1.profile.prompt_tokens > 0
+    assert isinstance(out2, geniex.GenerateOutput)
+    assert out2.profile.prompt_tokens > 0
 
 
 @pytest.mark.vlm
@@ -308,68 +328,6 @@ def _vlm_prompt(vlm, image_path: str, text: str) -> str:
     )
 
 
-@pytest.mark.llm
-@pytest.mark.parametrize(('model', 'device_map'), _LLM_MATRIX)
-@pytest.mark.parametrize(('prompt', 'expected'), LLM_QUALITY_PROMPTS)
-def test_llm_quality_keywords(cached, model, device_map, prompt, expected):
-    cached(model)
-    budget = model.quality_max_new_tokens or LLM_QUALITY_MAX_NEW_TOKENS
-    with geniex.AutoModelForCausalLM.from_pretrained(
-        model.id,
-        precision=model.precision,
-        device_map=device_map,
-    ) as llm:
-        formatted = llm.tokenizer.apply_chat_template(
-            [{'role': 'user', 'content': prompt}],
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=False,
-        )
-        out = llm.generate(
-            formatted,
-            max_new_tokens=budget,
-            temperature=GREEDY_TEMPERATURE,
-            seed=LLM_QUALITY_SEED,
-        )
-        assert out.text, f'empty completion for prompt={prompt!r}'
-        # Hoist to a bool so pytest's assertion introspection doesn't echo
-        # out.text 4-5x per failure.
-        matched = expected.lower() in out.text.lower()
-        # Greedy decode can loop until the budget runs out, so `length` is only a
-        # problem when it truncated before the keyword appeared.
-        assert matched, (
-            f'prompt={prompt!r} expected_substring={expected!r} '
-            f'model={model.id!r} device_map={device_map!r} '
-            f'stop_reason={out.profile.stop_reason!r} budget={budget} got={out.text!r}'
-        )
-
-
-@pytest.mark.vlm
-@pytest.mark.parametrize(('model', 'device_map'), _VLM_MATRIX)
-def test_vlm_quality_keywords(cached, model, quality_image, device_map):
-    cached(model)
-    with geniex.AutoModelForVision2Seq.from_pretrained(
-        model.id,
-        precision=model.precision,
-        device_map=device_map,
-    ) as vlm:
-        prompt = _vlm_prompt(vlm, quality_image, VLM_QUALITY_PROMPT)
-        out = vlm.generate(
-            prompt,
-            max_new_tokens=model.quality_max_new_tokens or VLM_QUALITY_MAX_NEW_TOKENS,
-            temperature=GREEDY_TEMPERATURE,
-            seed=VLM_QUALITY_SEED,
-            images=[quality_image],
-        )
-        assert out.text, f'empty caption for model={model.id!r} device_map={device_map!r}'
-        matched = any(kw in out.text.lower() for kw in VLM_QUALITY_KEYWORDS)
-        assert matched, (
-            f'caption did not match any expected keyword '
-            f'model={model.id!r} device_map={device_map!r} keywords={VLM_QUALITY_KEYWORDS} '
-            f'got={out.text!r}'
-        )
-
-
 def _forward_parity(device_map: str) -> tuple[list[list[tuple[int, float]]], list[float]]:
     with geniex.AutoModelForCausalLM.from_pretrained(
         _LLM.id,
@@ -408,18 +366,7 @@ def test_llm_forward_logits_all_positions(llama_cpp_llm_paths, device_map):
 
 @pytest.mark.llm
 @pytest.mark.parametrize('device_map', ['cpu'])
-def test_llm_model_info_embd_dim(llama_cpp_llm_paths, device_map):
-    with geniex.AutoModelForCausalLM.from_pretrained(
-        _LLM.id,
-        precision=_LLM.precision,
-        device_map=device_map,
-    ) as llm:
-        assert llm.embd_dim > 0, 'llama_cpp should report a positive embd_dim'
-
-
-@pytest.mark.llm
-@pytest.mark.parametrize('device_map', ['cpu'])
-def test_llm_generate_input_embd_smoke(llama_cpp_llm_paths, device_map):
+def test_llm_generate_input_embd(llama_cpp_llm_paths, device_map):
     # No public API exposes the model's own token-embedding table, so this
     # can't assert semantic parity with a text prompt — it only proves the
     # input_embd decode path runs end-to-end (batches, advances KV, samples)
@@ -431,7 +378,7 @@ def test_llm_generate_input_embd_smoke(llama_cpp_llm_paths, device_map):
         device_map=device_map,
     ) as llm:
         dim = llm.embd_dim
-        assert dim > 0
+        assert dim > 0, 'llama_cpp should report a positive embd_dim'
         n_rows = 4
         embd = [random.uniform(-1.0, 1.0) for _ in range(n_rows * dim)]
         out = llm.generate(
@@ -443,22 +390,14 @@ def test_llm_generate_input_embd_smoke(llama_cpp_llm_paths, device_map):
         )
         assert out.profile.generated_tokens > 0
 
-
-@pytest.mark.llm
-@pytest.mark.parametrize('device_map', ['cpu'])
-def test_llm_generate_input_embd_dimension_mismatch(llama_cpp_llm_paths, device_map):
-    with geniex.AutoModelForCausalLM.from_pretrained(
-        _LLM.id,
-        precision=_LLM.precision,
-        device_map=device_map,
-    ) as llm:
-        wrong_dim = llm.embd_dim + 1
+        wrong_dim = dim + 1
         with pytest.raises(geniex.GenieXError) as excinfo:
             llm.generate(input_embd=[0.0] * wrong_dim, input_embd_dim=wrong_dim, max_new_tokens=1)
         assert excinfo.value.code == GENIEX_ERROR_COMMON_INVALID_INPUT
 
 
 @pytest.mark.llm
+@pytest.mark.nightly
 @pytest.mark.parametrize('device_map', ['npu'])
 @pytest.mark.skipif(_IS_QCS9075M, reason='draft-mtp not yet supported upstream on QCS9075M / HTP')
 def test_mtp_multi_turn(llama_cpp_mtp_paths, device_map):
@@ -482,93 +421,30 @@ def test_mtp_multi_turn(llama_cpp_mtp_paths, device_map):
 _MEDIA_MARKER = '<__media__>'
 
 
-@pytest.mark.llm
-@pytest.mark.parametrize('device_map', ['cpu'])
-def test_chat_template_roles_and_sentinels(llama_cpp_llm_paths, device_map):
-    with geniex.AutoModelForCausalLM.from_pretrained(
-        _LLM.id,
-        precision=_LLM.precision,
-        device_map=device_map,
-    ) as llm:
-        prompt = llm.tokenizer.apply_chat_template(
-            [
-                {'role': 'system', 'content': 'You are a helpful assistant.'},
-                {'role': 'user', 'content': 'hi'},
-            ],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-    assert '<|im_start|>system' in prompt
-    assert '<|im_start|>user' in prompt
-    assert prompt.rstrip().endswith('<|im_start|>assistant')
-    assert prompt.index('<|im_start|>system') < prompt.index('<|im_start|>user')
-
-
-@pytest.mark.llm
-@pytest.mark.parametrize('device_map', ['cpu'])
-def test_chat_template_enable_thinking(llama_cpp_llm_paths, device_map):
-    with geniex.AutoModelForCausalLM.from_pretrained(
-        _LLM.id,
-        precision=_LLM.precision,
-        device_map=device_map,
-    ) as llm:
-        msgs = [{'role': 'user', 'content': 'hi'}]
-        with_think = llm.tokenizer.apply_chat_template(msgs, tokenize=False, enable_thinking=True)
-        without_think = llm.tokenizer.apply_chat_template(msgs, tokenize=False, enable_thinking=False)
-        default_think = llm.tokenizer.apply_chat_template(msgs, tokenize=False)
-    assert (
-        default_think == with_think
-    ), 'default enable_thinking should auto-resolve to True on a thinking-capable model'
-    assert with_think != without_think, f'enable_thinking flag did not reach the template: {with_think!r}'
-
-
-@pytest.mark.llm
-@pytest.mark.parametrize('device_map', ['cpu'])
-def test_chat_template_tools_list_and_json_string_equivalent(llama_cpp_llm_paths, device_map):
-    tool = {
-        'type': 'function',
-        'function': {
-            'name': 'get_weather',
-            'description': 'Get current weather.',
-            'parameters': {
-                'type': 'object',
-                'properties': {'city': {'type': 'string'}},
-                'required': ['city'],
-            },
+_WEATHER_TOOL = {
+    'type': 'function',
+    'function': {
+        'name': 'get_weather',
+        'description': 'Get current weather.',
+        'parameters': {
+            'type': 'object',
+            'properties': {'city': {'type': 'string'}},
+            'required': ['city'],
         },
-    }
-    msgs = [{'role': 'user', 'content': "what's the weather in Paris?"}]
-    with geniex.AutoModelForCausalLM.from_pretrained(
-        _LLM.id,
-        precision=_LLM.precision,
-        device_map=device_map,
-    ) as llm:
-        from_list = llm.tokenizer.apply_chat_template(msgs, tokenize=False, tools=[tool])
-        from_str = llm.tokenizer.apply_chat_template(msgs, tokenize=False, tools=json.dumps([tool]))
-    assert from_list == from_str, 'tools=list[dict] and tools=json.dumps(list[dict]) should render identically'
-    assert 'get_weather' in from_list
+    },
+}
 
 
-# Regression: tool calls used to be flattened into assistant text, so templates
-# that render a tool response only from the tool_calls of the turn before it
-# (Gemma 4, Mistral, Cohere) dropped the tool result from the prompt entirely.
 @pytest.mark.llm
 @pytest.mark.parametrize('device_map', ['cpu'])
-def test_chat_template_renders_tool_response(llama_cpp_llm_paths, device_map):
-    tool = {
-        'type': 'function',
-        'function': {
-            'name': 'get_weather',
-            'description': 'Get current weather.',
-            'parameters': {'type': 'object', 'properties': {'city': {'type': 'string'}}},
-        },
-    }
+def test_chat_template(llama_cpp_llm_paths, device_map):
+    hi = [{'role': 'user', 'content': 'hi'}]
+    asked = [{'role': 'user', 'content': "what's the weather in Paris?"}]
     call = {
         'id': 'call_1',
         'type': 'function',
         'function': {'name': 'get_weather', 'arguments': '{"city": "Paris"}'},
     }
-    asked = [{'role': 'user', 'content': "what's the weather in Paris?"}]
     answered = asked + [
         {'role': 'assistant', 'content': None, 'tool_calls': [call]},
         {'role': 'tool', 'tool_call_id': 'call_1', 'name': 'get_weather', 'content': 'MAGIC_SUNNY_42'},
@@ -578,10 +454,34 @@ def test_chat_template_renders_tool_response(llama_cpp_llm_paths, device_map):
         precision=_LLM.precision,
         device_map=device_map,
     ) as llm:
-        before = llm.tokenizer.apply_chat_template(asked, tokenize=False, tools=[tool])
-        after = llm.tokenizer.apply_chat_template(answered, tokenize=False, tools=[tool])
+        render = llm.tokenizer.apply_chat_template
+        roles = render(
+            [{'role': 'system', 'content': 'You are a helpful assistant.'}, *hi],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        with_think = render(hi, tokenize=False, enable_thinking=True)
+        without_think = render(hi, tokenize=False, enable_thinking=False)
+        default_think = render(hi, tokenize=False)
+        from_list = render(asked, tokenize=False, tools=[_WEATHER_TOOL])
+        from_str = render(asked, tokenize=False, tools=json.dumps([_WEATHER_TOOL]))
+        after = render(answered, tokenize=False, tools=[_WEATHER_TOOL])
+
+    assert '<|im_start|>system' in roles
+    assert '<|im_start|>user' in roles
+    assert roles.rstrip().endswith('<|im_start|>assistant')
+    assert roles.index('<|im_start|>system') < roles.index('<|im_start|>user')
+    assert (
+        default_think == with_think
+    ), 'default enable_thinking should auto-resolve to True on a thinking-capable model'
+    assert with_think != without_think, f'enable_thinking flag did not reach the template: {with_think!r}'
+    assert from_list == from_str, 'tools=list[dict] and tools=json.dumps(list[dict]) should render identically'
+    assert 'get_weather' in from_list
+    # Regression: tool calls used to be flattened into assistant text, so templates
+    # that render a tool response only from the tool_calls of the turn before it
+    # (Gemma 4, Mistral, Cohere) dropped the tool result from the prompt entirely.
     assert 'MAGIC_SUNNY_42' in after, f'tool response missing from the prompt: {after!r}'
-    assert len(after) > len(before), 'adding a tool round trip did not grow the prompt'
+    assert len(after) > len(from_list), 'adding a tool round trip did not grow the prompt'
 
 
 @pytest.mark.llm
@@ -648,43 +548,31 @@ def test_context_shift_not_triggered_when_nctx_is_ample(llama_cpp_llm_paths, dev
 
 @pytest.mark.vlm
 @pytest.mark.parametrize('device_map', ['cpu'])
-@pytest.mark.parametrize('n_images', [0, 1, 2])
-def test_mtmd_marker_prepended_per_image(llama_cpp_vlm_paths, test_image, quality_image, device_map, n_images):
-    content: list[dict] = [
-        {'type': 'image', 'image': test_image},
-        {'type': 'image', 'image': quality_image},
-    ][:n_images]
-    content.append({'type': 'text', 'text': 'describe the picture'})
-
+def test_mtmd_markers(llama_cpp_vlm_paths, test_image, quality_image, device_map):
+    images = [{'type': 'image', 'image': test_image}, {'type': 'image', 'image': quality_image}]
     with geniex.AutoModelForVision2Seq.from_pretrained(
         _VLM.id,
         precision=_VLM.precision,
         device_map=device_map,
     ) as vlm:
-        prompt = vlm.tokenizer.apply_chat_template(
-            [{'role': 'user', 'content': content}],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-    assert prompt.count(_MEDIA_MARKER) == n_images
-    assert 'describe the picture' in prompt
-
-
-@pytest.mark.vlm
-@pytest.mark.parametrize('device_map', ['cpu'])
-def test_mtmd_marker_absent_on_text_only_message(llama_cpp_vlm_paths, device_map):
-    with geniex.AutoModelForVision2Seq.from_pretrained(
-        _VLM.id,
-        precision=_VLM.precision,
-        device_map=device_map,
-    ) as vlm:
-        prompt = vlm.tokenizer.apply_chat_template(
+        prompts = [
+            vlm.tokenizer.apply_chat_template(
+                [{'role': 'user', 'content': [*images[:n], {'type': 'text', 'text': 'describe the picture'}]}],
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            for n in range(3)
+        ]
+        text_only = vlm.tokenizer.apply_chat_template(
             [{'role': 'user', 'content': 'plain text, no image'}],
             tokenize=False,
             add_generation_prompt=True,
         )
-    assert _MEDIA_MARKER not in prompt
-    assert 'plain text, no image' in prompt
+    for n, prompt in enumerate(prompts):
+        assert prompt.count(_MEDIA_MARKER) == n, f'n_images={n}: {prompt!r}'
+        assert 'describe the picture' in prompt
+    assert _MEDIA_MARKER not in text_only
+    assert 'plain text, no image' in text_only
 
 
 @pytest.mark.vlm

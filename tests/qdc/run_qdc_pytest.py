@@ -43,6 +43,12 @@ log = logging.getLogger(__name__)
 # tests/conftest.py resolves this relative to the repo root, so preserve the path.
 TEST_IMAGE_REL = Path('cli/server/docs/ui/favicon-32x32.png')
 HTP_CERT_REL = Path('.github/certs/hexagon/ggml-htp-v1.cer')
+# PR smoke leaves CPU cells to GitHub runners and big models to nightly.
+MARKEXPR = {
+    'pr': '(llama_cpp or qairt) and not nightly and not device_cpu',
+    'full': 'llama_cpp or qairt',
+}
+MARKEXPR_FILE = 'pytest-markexpr.txt'
 _IGNORE = shutil.ignore_patterns('__pycache__', '*.pyc', '.venv', '*.egg-info', 'models')
 
 
@@ -55,27 +61,29 @@ def _stage_common(pkg_dir: Path, stage: Path) -> None:
     shutil.copy(REPO / TEST_IMAGE_REL, img)
 
 
-def _build_windows_artifact(pkg_dir: Path, tmp: Path) -> Path:
+def _build_windows_artifact(pkg_dir: Path, tmp: Path, markexpr: str) -> Path:
     stage = tmp / 'stage'
     stage.mkdir()
     _stage_common(pkg_dir, stage)
+    (stage / MARKEXPR_FILE).write_text(markexpr)
     shutil.copy(REPO / HTP_CERT_REL, stage / 'ggml-htp-v1.cer')
     # CRLF — QDC's PowerShell parser is friendlier with CRLF.
     (stage / 'run_pytest.ps1').write_text((HERE / 'windows' / 'run_pytest.ps1').read_text(), newline='\r\n')
     return Path(shutil.make_archive(str(tmp / 'artifact'), 'zip', stage))
 
 
-def _build_linux_artifact(pkg_dir: Path, tmp: Path) -> Path:
+def _build_linux_artifact(pkg_dir: Path, tmp: Path, markexpr: str) -> Path:
     stage = tmp / 'stage'
     stage.mkdir()
     _stage_common(pkg_dir, stage)
+    (stage / MARKEXPR_FILE).write_text(markexpr)
     script_path = stage / 'run_pytest.sh'
     script_path.write_text((HERE / 'linux' / 'run_pytest.sh').read_text(), newline='\n')
     script_path.chmod(0o755)
     return Path(shutil.make_archive(str(tmp / 'artifact'), 'zip', stage))
 
 
-def _build_android_artifact(pkg_dir: Path, tmp: Path) -> Path:
+def _build_android_artifact(pkg_dir: Path, tmp: Path, markexpr: str) -> Path:
     # QDC APPIUM auto-discovers `pytest tests/` from the artifact root; the
     # payload the host-side driver pushes to the phone lives at payload/ so
     # the appium container's pytest never imports payload/tests/conftest.py
@@ -99,6 +107,7 @@ def _build_android_artifact(pkg_dir: Path, tmp: Path) -> Path:
     for name in ('conftest.py', 'test_run_device.py', 'android_deploy.py'):
         shutil.copy(HERE / 'android' / name, host / name)
     (stage / 'requirements.txt').write_text((HERE / 'android' / 'requirements.txt').read_text())
+    (stage / MARKEXPR_FILE).write_text(markexpr)
     # -s (no capture) forces device-side pytest stdout through to the QDC stdout log —
     # otherwise host pytest swallows adb_shell output and only surfaces it on host FAIL.
     (stage / 'pytest.ini').write_text('[pytest]\naddopts = -s\n')
@@ -237,7 +246,7 @@ def _rows_from_reportlog(data: bytes) -> tuple[list[Row], set[str]]:
     return list(outcomes.values()), incomplete
 
 
-def _model_lines() -> list[str]:
+def _model_lines(tier: str) -> list[str]:
     try:
         with MODELS_MANIFEST.open(encoding='utf-8') as f:
             models = json.load(f).get('models', {})
@@ -248,6 +257,8 @@ def _model_lines() -> list[str]:
     lines = ['### Models', '', '| Slot | Model | Precision | Devices |', '|---|---|---|---|']
     for slot, entries in models.items():
         for entry in entries:
+            if tier == 'pr' and entry.get('nightly'):
+                continue
             env = entry.get('env_override')
             current_id = (env and os.environ.get(env)) or entry.get('id') or '—'
             prec = entry.get('precision') or '—'
@@ -257,7 +268,9 @@ def _model_lines() -> list[str]:
     return lines
 
 
-def _render_summary(rows: list[Row], label: str, incomplete: set[str] | None = None) -> tuple[int, str]:
+def _render_summary(
+    rows: list[Row], label: str, incomplete: set[str] | None = None, tier: str = 'full'
+) -> tuple[int, str]:
     incomplete = incomplete or set()
     for nodeid in sorted(incomplete):
         rows.append(('FAIL', nodeid, 'process aborted before test completed', ''))
@@ -273,7 +286,7 @@ def _render_summary(rows: list[Row], label: str, incomplete: set[str] | None = N
         f'**{verdict}** — {passed} passed, {failed} failed, 0 errored, {skipped} skipped (of {total})',
         '',
     ]
-    lines += _model_lines()
+    lines += _model_lines(tier)
     fails: list[tuple[str, str, str]] = []
     for status, name, msg, body in rows:
         if status == 'FAIL':
@@ -301,13 +314,13 @@ def _render_summary(rows: list[Row], label: str, incomplete: set[str] | None = N
     return (0 if verdict == 'PASS' else 1), '\n'.join(lines) + '\n'
 
 
-def summarise(xml: bytes, label: str = '') -> tuple[int, str]:
-    return _render_summary(_rows_from_junit(xml), label)
+def summarise(xml: bytes, label: str = '', tier: str = 'full') -> tuple[int, str]:
+    return _render_summary(_rows_from_junit(xml), label, tier=tier)
 
 
-def summarise_reportlog(data: bytes, label: str = '') -> tuple[int, str]:
+def summarise_reportlog(data: bytes, label: str = '', tier: str = 'full') -> tuple[int, str]:
     rows, incomplete = _rows_from_reportlog(data)
-    return _render_summary(rows, label, incomplete)
+    return _render_summary(rows, label, incomplete, tier)
 
 
 def write_summary(text: str) -> None:
@@ -322,6 +335,7 @@ def main() -> int:
     p.add_argument('--pkg-dir', type=Path, required=True)
     p.add_argument('--platform', required=True, choices=sorted(BUILDERS))
     p.add_argument('--device', required=True, help='QDC device alias, e.g. QCS9075M / SC8480XP')
+    p.add_argument('--tier', choices=sorted(MARKEXPR), default='full')
     p.add_argument('--job-timeout', type=int, default=10800)
     p.add_argument(
         '--logs-dir',
@@ -337,13 +351,13 @@ def main() -> int:
     if not api_key:
         raise SystemExit('QDC_API_KEY must be set')
 
-    label = f'{args.platform} ({args.device})'
+    label = f'{args.platform} ({args.device}) · {args.tier}'
     client = _qdc.make_client(api_key)
     target_id = _qdc.resolve_target(client, args.device)
 
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
-        zip_path = BUILDERS[args.platform](args.pkg_dir, tmp)
+        zip_path = BUILDERS[args.platform](args.pkg_dir, tmp, MARKEXPR[args.tier])
         job_id = _qdc.submit_and_wait(
             client,
             target_id=target_id,
@@ -395,10 +409,10 @@ def main() -> int:
     by_name = {_basename(name): data for name, data in results}
     # Android's JUnit only covers the host-side wrapper test; per-case outcomes come from device stdout.
     if args.platform != 'android' and b'</testsuite>' in by_name.get('device-results.xml', b''):
-        code, md = summarise(by_name['device-results.xml'], label)
+        code, md = summarise(by_name['device-results.xml'], label, args.tier)
     elif by_name.get('device-report.log'):
         log.warning('JUnit XML missing or incomplete; reconstructing from --report-log NDJSON')
-        code, md = summarise_reportlog(by_name['device-report.log'], label)
+        code, md = summarise_reportlog(by_name['device-report.log'], label, args.tier)
     else:
         log.warning('no JUnit XML or report-log recovered; reconstructing from device stdout')
         diag_by_name = {_basename(name): data for name, data in diag}
@@ -410,7 +424,7 @@ def main() -> int:
         if not rows:
             write_summary(f'## QDC Test — {label}\n\nNo test outcomes recovered.\n')
             return 1
-        code, md = _render_summary(rows, label)
+        code, md = _render_summary(rows, label, tier=args.tier)
         write_summary(md)
         return code
     write_summary(md)
