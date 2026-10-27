@@ -347,9 +347,7 @@ func runChat[T, M any](c *gin.Context, param ChatCompletionRequest, modelParam t
 			wg      sync.WaitGroup
 		)
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			profile, _, genErr = generateWithRetry(acquired.Model, prompt, gen, prepareInput[M]{
 				Messages: messages,
 				Param:    param,
@@ -364,7 +362,7 @@ func runChat[T, M any](c *gin.Context, param ChatCompletionRequest, modelParam t
 				return true
 			})
 			close(dataCh)
-		}()
+		})
 
 		wait := func() error { wg.Wait(); return genErr }
 		includeUsage := param.StreamOptions.IncludeUsage.Value

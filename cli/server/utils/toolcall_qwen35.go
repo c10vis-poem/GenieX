@@ -51,11 +51,11 @@ func parseQwen35ToolCalls(s string) []toolCallFn {
 			return calls
 		}
 		s = s[i+len(qwen35FuncOpen):]
-		gt := strings.IndexByte(s, '>')
-		if gt < 0 {
+		before, after, ok := strings.Cut(s, ">")
+		if !ok {
 			return calls
 		}
-		name, body, closed := strings.TrimSpace(s[:gt]), s[gt+1:], true
+		name, body, closed := strings.TrimSpace(before), after, true
 		if end := strings.Index(body, qwen35FuncClose); end >= 0 {
 			body, s = body[:end], body[end+len(qwen35FuncClose):]
 		} else {

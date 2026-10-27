@@ -467,7 +467,7 @@ func inferLLM(ctx context.Context, paths *geniex_sdk.ModelPaths, resolvedPowerMo
 		}
 		n := len(content) / 4
 		embd = make([]float32, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			bits := binary.LittleEndian.Uint32(content[i*4 : i*4+4])
 			embd[i] = math.Float32frombits(bits)
 		}

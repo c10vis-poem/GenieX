@@ -18,7 +18,7 @@ import (
 func sseDeltas(t *testing.T, body string) []streamChoice {
 	t.Helper()
 	var out []streamChoice
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		data, ok := strings.CutPrefix(line, "data:")
 		if !ok || strings.TrimSpace(data) == "[DONE]" {
 			continue

@@ -95,7 +95,7 @@ func TestCompletionSSEProtocol(t *testing.T) {
 			var meta types.ResponseMetadata
 			var text strings.Builder
 			chunks, textChunks, finishes, usage, done, failures := 0, 0, 0, 0, 0, 0
-			for _, line := range strings.Split(w.Body.String(), "\n") {
+			for line := range strings.SplitSeq(w.Body.String(), "\n") {
 				if !strings.HasPrefix(line, "data:") {
 					continue
 				}

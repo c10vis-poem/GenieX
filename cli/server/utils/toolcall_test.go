@@ -219,7 +219,7 @@ func TestToolCallParserEndResetsCandidatePrefixes(t *testing.T) {
 			if content != "" || thinking != "" || !callsEqual(calls, want) {
 				t.Fatalf("ended prefix = (%q, %q, %+v), want calls %+v", content, thinking, calls, want)
 			}
-			for i := 0; i < 2; i++ {
+			for range 2 {
 				if events := parser.Feed(thinkfsm.Event{Kind: thinkfsm.ToolCallEnd}); len(events) != 0 {
 					t.Errorf("repeated End = %+v, want empty", events)
 				}
