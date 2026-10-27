@@ -109,6 +109,8 @@ func TestChatResponsesFinalizeParserAtEOF(t *testing.T) {
 			calls  []openai.ChatCompletionMessageFunctionToolCallFunction
 		}{
 			{name: "open object", tokens: []string{"{"}, text: "{"},
+			{name: "Ministral3 call", tokens: []string{`[TOOL_CALLS]f[ARGS]{}`}, calls: []openai.ChatCompletionMessageFunctionToolCallFunction{{Name: "f", Arguments: `{}`}}},
+			{name: "Ministral3 partial arguments", tokens: []string{`[TOOL_CALLS]f[ARGS]{"x":`}, text: `[TOOL_CALLS]f[ARGS]{"x":`},
 			{name: "partial wrapper", tokens: []string{"answer", " <", "tool", "_c"}, text: "answer <tool_c"},
 			{name: "recovered call", tokens: []string{`<tool_call>{"name":"f","arguments":{}}`}, calls: []openai.ChatCompletionMessageFunctionToolCallFunction{{Name: "f", Arguments: `{}`}}},
 		} {

@@ -114,6 +114,7 @@ func NewToolCallScanner(types map[string]map[string]string) *ToolCallScanner {
 	return &ToolCallScanner{formats: []toolCallFormat{
 		newGemma4ToolCall(),
 		newMiniCPM5ToolCall(types),
+		newMinistral3ToolCall(),
 		newSpark25ToolCall(types),
 		newQwen3ToolCall(),
 		newQwen35ToolCall(),

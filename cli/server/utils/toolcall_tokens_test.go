@@ -24,6 +24,16 @@ func TestToolCallParserTokens(t *testing.T) {
 			content: "<think>reason</think><|channel|>analysis<|message|>answer<|end|>",
 		},
 		{
+			name: "Ministral3 inline reasoning", plain: true,
+			tokens:  []string{"[THINK]", "reason", "[/THINK]", "[TOOL_CALLS]f[ARGS]{}"},
+			content: "[THINK]reason[/THINK]", calls: []toolCallFn{{Name: "f", Arguments: `{}`}},
+		},
+		{
+			name:      "Ministral3 reasoning with a literal call",
+			tokens:    []string{"[THINK]", "[TOOL_CALLS]", "fake", "[ARGS]", "{}", "[/THINK]", "[TOOL_CALLS]", "f", "[ARGS]", "{}"},
+			reasoning: "[TOOL_CALLS]fake[ARGS]{}", calls: []toolCallFn{{Name: "f", Arguments: `{}`}},
+		},
+		{
 			name:    "separated think transition",
 			tokens:  []string{"<think>", "reason", "</think>", "answer"},
 			content: "answer", reasoning: "reason",
@@ -167,6 +177,7 @@ func TestToolCallParserTokens(t *testing.T) {
 		{"Qwen coder", `<tool_call><function=f><parameter=x>1</parameter></function></tool_call>`, `{"x":1}`},
 		{"Gemma wrapper", `<|tool_call>call:f{x:1}<tool_call|>`, `{"x":1}`},
 		{"MiniCPM XML", `<function name="f"><param name="x">1</param></function>`, `{"x":"1"}`},
+		{"Ministral3 brackets", `[TOOL_CALLS]f[ARGS]{"x":1}`, `{"x":1}`},
 		{"Spark tagged arguments", `<tool_call>f<arg_key>x</arg_key><arg_value>1</arg_value></tool_call>`, `{"x":"1"}`},
 		{"LFM call", `<|tool_call_start|>[f(x=1)]<|tool_call_end|>`, `{"x":1}`},
 		{"GPTOSS recipient text", ` to=functions.f<|message|>{"x":1}<|call|>`, `{"x":1}`},

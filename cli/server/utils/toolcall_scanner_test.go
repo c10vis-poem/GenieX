@@ -282,7 +282,7 @@ func TestTailIsTerminal(t *testing.T) {
 func TestFeedOffsetsStayAhead(t *testing.T) {
 	// Near-miss adjacency is what breaks a scan: try every triple of these.
 	pieces := []string{"<|tool_call>call:", "<tool_call>", "</tool_call>", "<tool_call|>",
-		"{", "}", `"`, `<|"|>`, "a:1", " "}
+		"[TOOL_CALLS]", "[ARGS]", "{", "}", `"`, `<|"|>`, "a:1", " "}
 	var corpus []string
 	for _, a := range pieces {
 		for _, b := range pieces {
@@ -296,6 +296,8 @@ func TestFeedOffsetsStayAhead(t *testing.T) {
 		`<tool_call>{"name":"f","arguments":{"s":"</tool_call>"}}</tool_call>`,
 		`<|tool_call>call:a{}<tool_call|>mid<|tool_call>call:b{x:<|"|>}{<|"|>}<tool_call|>`,
 		`{"a":"<tool_call>"} more`,
+		`[TOOL_CALLS]f[ARGS]{"s":"[TOOL_CALLS]g[ARGS]{}"}[TOOL_CALLS]h[ARGS]{}`,
+		`[TOOL_CALLS]f[TOOL_CALLS]g[ARGS]{}`,
 		"prose { unclosed <tool_call> forever")
 
 	for _, resp := range corpus {

@@ -11,6 +11,7 @@ const (
 	stateAssistant state = iota // init state
 	stateThink
 	stateNormal
+	stateMinistralThink
 
 	// gpt-oss
 	stateGPTOSSStart
@@ -85,6 +86,10 @@ var transitions = func() map[key]transition {
 		{stateThink, "</think>"}:    {stateNormal, Event{Kind: LeaveThinking}},
 		{stateThink, ""}:            {stateThink, Event{Kind: Thinking}},
 		{stateNormal, ""}:           {stateNormal, Event{Kind: Content}},
+
+		{stateAssistant, "[THINK]"}:       {stateMinistralThink, Event{Kind: EnterThinking}},
+		{stateMinistralThink, "[/THINK]"}: {stateNormal, Event{Kind: LeaveThinking}},
+		{stateMinistralThink, ""}:         {stateMinistralThink, Event{Kind: Thinking}},
 
 		// gpt-oss message start
 		{stateAssistant, "<|start|>"}:   {stateGPTOSSStart, Event{}},
