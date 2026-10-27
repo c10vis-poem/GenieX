@@ -12,8 +12,10 @@ import (
 	"github.com/gookit/color"
 )
 
-var theme *Theme
-var themeInit sync.Once
+var themeOnce = sync.OnceValue(func() *Theme {
+	slog.Debug("Detect terminal theme")
+	return defaultColorTheme()
+})
 
 type Theme struct {
 	Normal  Style
@@ -37,11 +39,7 @@ type Theme struct {
 }
 
 func GetTheme() *Theme {
-	themeInit.Do(func() {
-		slog.Debug("Detect terminal theme")
-		theme = defaultColorTheme()
-	})
-	return theme
+	return themeOnce()
 }
 
 type Style interface {

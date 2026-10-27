@@ -5,6 +5,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -58,7 +59,7 @@ func Serve() {
 
 	if cfg.HTTPS {
 		for _, path := range []string{cfg.CertFile, cfg.KeyFile} {
-			if _, err := os.Stat(path); os.IsNotExist(err) {
+			if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 				fmt.Println(render.GetTheme().Error.Sprintf("HTTPS cert/key file not found: %s", path))
 				return
 			}

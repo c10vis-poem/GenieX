@@ -112,7 +112,7 @@ func (d *HTTPDownloader) DownloadChunk(ctx context.Context, reqURL string, offse
 
 		var lastErr error
 		baseDelay := d.retryDelayMs
-		for retry := 0; retry < d.maxRetries; retry++ {
+		for retry := range d.maxRetries {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()

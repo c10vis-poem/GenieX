@@ -21,18 +21,15 @@ type Store struct {
 	home string
 }
 
-var (
-	instance *Store
-	once     sync.Once
-)
+var instance = sync.OnceValue(func() *Store {
+	s := &Store{}
+	s.init()
+	return s
+})
 
 // Get returns the singleton instance of Store.
 func Get() *Store {
-	once.Do(func() {
-		instance = &Store{}
-		instance.init()
-	})
-	return instance
+	return instance()
 }
 
 // init resolves the data directory. The SDK model-manager creates the models
@@ -54,7 +51,7 @@ func (s *Store) init() {
 	}
 }
 
-// fatal reports an unusable data directory and exits; Get() is a sync.Once with
+// fatal reports an unusable data directory and exits; Get() is a sync.OnceValue with
 // no error channel. Prints as well as logs: the default log level is "none".
 func fatal(what string, err error) {
 	slog.Error(what, "err", err)

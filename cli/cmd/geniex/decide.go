@@ -247,14 +247,14 @@ func parseDecisionChoices(raw []string) ([]decision.Choice, error) {
 	choices := make([]decision.Choice, 0, len(raw))
 	seen := make(map[string]struct{}, len(raw))
 	for _, value := range raw {
-		parts := strings.SplitN(value, "=", 2)
-		choice := strings.TrimSpace(parts[0])
+		choice, rest, hasDesc := strings.Cut(value, "=")
+		choice = strings.TrimSpace(choice)
 		if choice == "" {
 			return nil, errors.New("--choice values must not be empty")
 		}
 		description := ""
-		if len(parts) == 2 {
-			description = strings.TrimSpace(parts[1])
+		if hasDesc {
+			description = strings.TrimSpace(rest)
 			if description == "" {
 				return nil, fmt.Errorf("description for choice %q must not be empty", choice)
 			}
@@ -272,14 +272,14 @@ func parseDecisionLevels(raw []string) ([]decision.Level, error) {
 	levels := make([]decision.Level, 0, len(raw))
 	seen := make(map[string]struct{}, len(raw))
 	for _, value := range raw {
-		parts := strings.SplitN(value, "=", 2)
-		label := strings.TrimSpace(parts[0])
+		label, rest, hasDesc := strings.Cut(value, "=")
+		label = strings.TrimSpace(label)
 		if label == "" {
 			return nil, errors.New("--level labels must not be empty")
 		}
 		description := label
-		if len(parts) == 2 {
-			description = strings.TrimSpace(parts[1])
+		if hasDesc {
+			description = strings.TrimSpace(rest)
 			if description == "" {
 				return nil, fmt.Errorf("description for level %q must not be empty", label)
 			}

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -51,7 +52,7 @@ func resolveHub() (geniex_sdk.HubSource, error) {
 		return geniex_sdk.HubDocker, nil
 	case "local", "localfs":
 		if localPath == "" {
-			return 0, fmt.Errorf("local path is required for localfs model hub")
+			return 0, errors.New("local path is required for localfs model hub")
 		}
 		return geniex_sdk.HubLocalFS, nil
 	default:
@@ -580,7 +581,7 @@ func hasTerminal() bool {
 // it wins outright when alone or without a terminal, else the picker preselects it.
 func choosePrecision(title string, candidates []geniex_sdk.PrecisionCandidate) (string, error) {
 	if len(candidates) == 0 {
-		return "", fmt.Errorf("no precision available for this model")
+		return "", errors.New("no precision available for this model")
 	}
 	if len(candidates) == 1 || !hasTerminal() {
 		return candidates[0].Precision, nil

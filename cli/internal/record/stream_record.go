@@ -5,6 +5,7 @@ package record
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -77,7 +78,7 @@ func (sr *StreamRecorder) Start() error {
 
 func (sr *StreamRecorder) ReadFloat32(buffer []float32) (int, error) {
 	if sr.stdout == nil {
-		return 0, fmt.Errorf("recorder not started")
+		return 0, errors.New("recorder not started")
 	}
 
 	rawBytes := make([]byte, len(buffer)*4)

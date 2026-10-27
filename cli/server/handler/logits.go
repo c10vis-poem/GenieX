@@ -117,7 +117,7 @@ func ForwardLogits(c *gin.Context) {
 	}
 
 	rows := make([]ForwardRow, res.NRows)
-	for r := 0; r < res.NRows; r++ {
+	for r := range res.NRows {
 		lo := r * res.RowWidth
 		hi := lo + res.RowWidth
 		row := ForwardRow{Logits: res.Logits[lo:hi]}

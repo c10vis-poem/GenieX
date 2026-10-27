@@ -4,6 +4,7 @@
 package record
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -51,7 +52,7 @@ func (r *Recorder) Run() error {
 
 func (r *Recorder) Stop() error {
 	if r.cmd.Process == nil {
-		return fmt.Errorf("recording not started yet")
+		return errors.New("recording not started yet")
 	}
 
 	return r.cmd.Process.Kill()

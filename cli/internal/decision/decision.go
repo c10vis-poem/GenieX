@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 
 	geniex_sdk "github.com/qualcomm/GenieX/bindings/go"
@@ -136,11 +137,8 @@ func choiceConfidence(probabilities []float64) float64 {
 		return 1
 	}
 	uniform := 1 / float64(len(probabilities))
-	peak := 0.0
-	for _, probability := range probabilities {
-		peak = math.Max(peak, probability)
-	}
-	return math.Max(0, (peak-uniform)/(1-uniform))
+	peak := slices.Max(probabilities)
+	return max(0, (peak-uniform)/(1-uniform))
 }
 
 // Compare expected distance from the modal level against a uniform distribution.
@@ -163,7 +161,7 @@ func scoreConfidence(probabilities []float64) float64 {
 	if uniformDistance == 0 {
 		return 1
 	}
-	return math.Max(0, 1-distance/uniformDistance)
+	return max(0, 1-distance/uniformDistance)
 }
 
 // Answer applies the temperature read from the model's GGUF metadata and the
@@ -186,7 +184,7 @@ func Answer(question Question, logits []float32, temperature float64) (Result, e
 		if math.IsNaN(float64(logit)) || math.IsInf(float64(logit), 0) {
 			return Result{}, errors.New("non-finite candidate logit")
 		}
-		peak = math.Max(peak, float64(logit))
+		peak = max(peak, float64(logit))
 	}
 	probabilities := make([]float64, len(logits))
 	var sum float64

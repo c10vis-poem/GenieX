@@ -196,16 +196,16 @@ func TestCompileDecisionInvalidRequests(t *testing.T) {
 			var questions string
 			switch tt.kind {
 			case "predicate":
-				for i := 0; i < tt.count; i++ {
+				for range tt.count {
 					questions += `{"type":"predicate","instructions":"test"},`
 				}
 			case "choice":
-				for i := 0; i < tt.count; i++ {
+				for i := range tt.count {
 					questions += fmt.Sprintf(`{"value":"%d"},`, i)
 				}
 				questions = `{"type":"choice","instructions":"test","choices":[` + strings.TrimSuffix(questions, ",") + `]}`
 			case "score":
-				for i := 0; i < tt.count; i++ {
+				for i := range tt.count {
 					questions += fmt.Sprintf(`{"label":"%d"},`, i)
 				}
 				questions = `{"type":"score","instructions":"test","levels":[` + strings.TrimSuffix(questions, ",") + `]}`

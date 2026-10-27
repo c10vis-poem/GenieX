@@ -456,7 +456,7 @@ func inferLLM(ctx context.Context, paths *geniex_sdk.ModelPaths, resolvedPowerMo
 	var embd []float32
 	if embdFile != "" {
 		if embdDim <= 0 {
-			return fmt.Errorf("--embd-dim must be > 0 when --embd-file is set")
+			return errors.New("--embd-dim must be > 0 when --embd-file is set")
 		}
 		content, err := os.ReadFile(embdFile)
 		if err != nil {
