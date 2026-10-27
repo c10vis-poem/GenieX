@@ -96,7 +96,7 @@ jobs:
       # main's out of the 10 GB repo cache, so later PRs started cold.
       - name: Restore ccache
         id: ccache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.ccache
           key: ccache-sdk-${{ matrix.platform }}-${{ github.sha }}
@@ -145,7 +145,7 @@ jobs:
       # restore-keys lets unchanged-config runs reuse the previous tree.
       - name: Restore CMake build dir
         id: cmake-build
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: sdk/build-${{ matrix.preset }}
           key: cmake-build-${{ matrix.platform }}-${{ steps.tc.outputs.tag }}-${{ hashFiles('sdk/CMakeLists.txt', 'sdk/**/CMakeLists.txt', 'sdk/CMakePresets.json', 'sdk/cmake/**', 'sdk/patches/**', '.gitmodules', 'third-party/**/CMakeLists.txt', 'third-party/**/*.cmake', 'third-party/**/cmake/**') }}-${{ github.sha }}
@@ -307,14 +307,14 @@ jobs:
 
       - name: Save ccache
         if: github.ref == 'refs/heads/main' && steps.ccache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ github.workspace }}/.ccache
           key: ${{ steps.ccache.outputs.cache-primary-key }}
 
       - name: Save CMake build dir
         if: github.ref == 'refs/heads/main' && steps.cmake-build.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: sdk/build-${{ matrix.preset }}
           key: ${{ steps.cmake-build.outputs.cache-primary-key }}
