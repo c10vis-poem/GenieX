@@ -61,9 +61,24 @@ jobs:
         if: inputs.gate_on_changed_files
         uses: ./.github/actions/changed-files
         with:
-          # QDC harness bundles the full tests/ tree onto the device, so any
-          # tests/** change (not just tests/qdc/**) affects the on-device run.
-          include: '^(sdk|third-party|tests)/|^\.github/workflows/_qdc-test\.yml$'
+          # Only what changes the on-device run: SDK runtime sources and
+          # submodules, model-manager's chipset / AI Hub asset selection (the
+          # rest of it is covered by test-rust and test-sdk-ci), the tests/
+          # tree QDC bundles, and the QDC / SDK-build CI. One ERE per line, no
+          # blank lines: an empty pattern would match every file.
+          include: |-
+            ^sdk/(src|include|plugins|patches|cmake)/
+            ^sdk/CMake(Lists\.txt|Presets\.json)$
+            ^sdk/model-manager/crates/core/src/source/ai_hub/
+            ^sdk/model-manager/crates/ffi/src/chipset\.rs$
+            ^sdk/benchmark/qdc/_qdc\.py$
+            ^third-party/
+            ^\.gitmodules$
+            ^tests/
+            ^\.github/workflows/(_qdc-test|_build-sdk)\.yml$
+            ^\.github/actions/(install-qdc-sdk|setup-snapdragon-sdks)/
+            ^\.github/certs/hexagon/
+          exclude: '\.md$|^tests/(test_api\.py|ruff\.toml)$'
 
       - name: Decide skip
         id: skip

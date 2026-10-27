@@ -149,8 +149,13 @@ The project splits into two test workflows:
 
   The PR tier skips the CPU cells (`test-sdk-ci` already runs them), the
   `nightly` models (their download was most of a PR run), and the Linux leg
-  (QCS9075M queues for up to 2 h). A cancelled run aborts its QDC job so the
-  key's pending-job slot frees up.
+  (QCS9075M often queues for hours). It only runs when a PR touches the SDK
+  runtime (`sdk/src`, `include`, `plugins`, `patches`, `cmake`), a submodule,
+  model-manager's chipset / AI Hub asset selection, `tests/` (except
+  `test_api.py`), or the QDC / SDK-build CI; the exact list is the
+  `changed-files` include in `_qdc-test.yml`. Bench, the rest of
+  model-manager, and docs-only changes skip it. A cancelled run aborts its QDC
+  job so the device frees up.
 
 Each platform's entry script lives under [qdc/](qdc/) and reads the marker
 expression from `pytest-markexpr.txt`, which
