@@ -675,7 +675,7 @@ func TestGPTOSSRecovery(t *testing.T) {
 	t.Run("truncated restarted thinking stream", func(t *testing.T) {
 		tokens := []string{"<|channel|>", "analysis", "<|message|>", "reason", "<|start|>", "assistant", "<|channel|>", "final", "<|message|>", "answer", "<|end|>"}
 		kinds := []EventKind{Consume, Consume, EnterThinking, Thinking, LeaveThinking, Consume, Consume, Consume, Consume, Content, Consume}
-		for n := 0; n < len(tokens); n++ {
+		for n := range tokens {
 			t.Run("prefix "+strconv.Itoa(n), func(t *testing.T) {
 				checkTokens(t, New(), tokens[:n], kinds[:n])
 			})

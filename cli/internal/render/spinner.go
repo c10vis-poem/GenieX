@@ -29,9 +29,7 @@ func NewSpinner(desc string) *Spinner {
 
 func (s *Spinner) Start() {
 	s.start.Add(1)
-	s.stop.Add(1)
-
-	go func() {
+	s.stop.Go(func() {
 		// if NO_COLOR is set, do not show spinner
 		if os.Getenv("NO_COLOR") == "1" {
 			fmt.Println(s.View())
@@ -39,8 +37,7 @@ func (s *Spinner) Start() {
 		} else {
 			s.Spinner.Run()
 		}
-		s.stop.Done()
-	}()
+	})
 }
 
 func (s *Spinner) Stop() {

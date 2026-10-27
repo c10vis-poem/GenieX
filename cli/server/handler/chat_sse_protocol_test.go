@@ -59,7 +59,7 @@ func TestChatSSEProtocol(t *testing.T) {
 			var id string
 			var created int64
 			chunks, usage, done, sawError := 0, 0, false, false
-			for _, line := range strings.Split(w.Body.String(), "\n") {
+			for line := range strings.SplitSeq(w.Body.String(), "\n") {
 				data, ok := strings.CutPrefix(line, "data:")
 				if !ok {
 					continue

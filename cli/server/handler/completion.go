@@ -188,9 +188,7 @@ func Completions(c *gin.Context) {
 			wg      sync.WaitGroup
 		)
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			out, err := p.Generate(geniex_sdk.LlmGenerateInput{
 				PromptUTF8: prompt,
 				OnToken: func(token string) bool {
@@ -207,7 +205,7 @@ func Completions(c *gin.Context) {
 				profile = out.ProfileData
 			}
 			close(dataCh)
-		}()
+		})
 
 		wait := func() error { wg.Wait(); return genErr }
 		streamCompletion(c, dataCh, wait, req.StreamOptions.IncludeUsage.Value, echo, &profile, string(req.Model))
