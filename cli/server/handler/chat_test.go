@@ -5,6 +5,8 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
@@ -17,6 +19,31 @@ import (
 
 	"github.com/qualcomm/GenieX/cli/internal/thinkfsm"
 )
+
+func TestWriteChatExecutionErrorStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{name: "wrapped SDK invalid input", err: fmt.Errorf("media rejected: %w", geniex_sdk.ErrCommonInvalidInput), want: http.StatusBadRequest},
+		{name: "image load failure", err: fmt.Errorf("media rejected: %w", geniex_sdk.ErrVlmImageLoad), want: http.StatusBadRequest},
+		{name: "audio load failure", err: fmt.Errorf("media rejected: %w", geniex_sdk.ErrVlmAudioLoad), want: http.StatusBadRequest},
+		{name: "SDK generation failure", err: geniex_sdk.ErrVlmGenerationFailed, want: http.StatusInternalServerError},
+		{name: "non-SDK generation failure", err: fmt.Errorf("generation failed"), want: http.StatusInternalServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+			writeChatExecutionError(c, tc.err)
+			if w.Code != tc.want {
+				t.Errorf("HTTP status = %d, want %d", w.Code, tc.want)
+			}
+		})
+	}
+}
 
 func TestReasoningSeparated(t *testing.T) {
 	cases := map[string]bool{
