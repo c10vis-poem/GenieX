@@ -100,7 +100,6 @@ print(output.text)
 | `seed` | `int` | `-1` | 随机种子（`-1` 表示随机）。 |
 | `stop` | `list[str] \| None` | `None` | 停止序列。 |
 | `grammar` | `str \| None` | `None` | 用于约束生成的 GBNF 语法字符串。 |
-| `chat_template_grammar` | `ChatTemplateGrammar \| None` | `None` | `apply_chat_template(include_grammar=True)` 返回的工具调用 grammar 元数据。 |
 
 </Expandable>
 
@@ -173,34 +172,12 @@ prompt = model.tokenizer.apply_chat_template(
 | `add_generation_prompt` | `bool` | `True` | 是否追加生成提示后缀。 |
 | `enable_thinking` | `bool \| None` | `None` | 启用思考模式。`None`（默认）和 `True` 都会让支持思考的模型进入思考模式（对非思考模型为 no-op）。`False` 用于让支持思考的模型跳过思考轮；对非思考模型会被强制改为 `True` 并发出警告（其抑制块超出训练分布）。能力通过 `model.supports_thinking` 自动检测并暴露。 |
 | `tools` | `list[dict] \| str \| None` | `None` | 工具定义，可为字典列表或预序列化的 JSON 字符串。 |
-| `include_grammar` | `bool` | `False` | 返回包含格式化 prompt 和 grammar 元数据的 `ChatTemplateOutput`，供 `generate()` 显式使用。 |
-| `parallel_tool_calls` | `bool` | `True` | 允许 llama_cpp template 原生支持的多调用能力；`False` 将支持该设置的 template 限制至多一个调用。提供工具时，QAIRT 拒绝 `False`。 |
 
-单调用限制依赖 template 支持。当前 pinned llama.cpp 中的 Kimi K3 和 Functionary v3.2 在 `False` 时仍可能生成多个调用；GenieX 会传递选项，但不会添加独立截断。
-
-默认返回 `str`。如需执行工具 grammar 及调用数限制，设为 `include_grammar=True` 并显式传递两个返回字段：
-
-```python
-template = model.tokenizer.apply_chat_template(
-    messages, tools=tools, include_grammar=True, parallel_tool_calls=False,
-)
-output = model.generate(
-    template.formatted_text,
-    chat_template_grammar=template.chat_template_grammar,
-)
-```
+**返回：** `str` —— 可直接传给 `model.generate()` 的格式化 prompt。
 
 ---
 
 ## 输出类
-
-### ChatTemplateOutput
-
-`apply_chat_template(..., include_grammar=True)` 返回的对象。`formatted_text` 是格式化 prompt；`chat_template_grammar` 是供 `generate()` 使用、由 Python 持有的 `ChatTemplateGrammar`。
-
-### ChatTemplateGrammar
-
-包含 grammar 类型/文本、lazy 标志、generation prompt、触发规则和保留的 token ID；模板调用返回后仍然有效。
 
 ### GenerateOutput
 

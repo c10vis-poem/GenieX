@@ -184,16 +184,11 @@ prompt = model.tokenizer.apply_chat_template(
 | `enable_thinking` | `bool \| None` | `None` | Enable thinking mode. `None` (default) and `True` both let a thinking-capable model think (and are no-ops on non-thinking models). `False` asks a thinking-capable model to skip its thinking turn — forced to `True` with a warning on non-thinking models, where the suppression block is OOD. Capability is auto-detected and exposed as `model.supports_thinking`. |
 | `tools` | `list[dict] \| str \| None` | `None` | Tool definitions as a list of dicts or pre-serialised JSON string. |
 | `include_grammar` | `bool` | `False` | Return a `ChatTemplateOutput` with the formatted prompt and grammar metadata for explicit use in `generate()`. |
-| `parallel_tool_calls` | `bool` | `True` | Allow the llama_cpp template's native multi-call capability; `False` caps supported templates at one call. QAIRT rejects `False` when tools are supplied. |
 
-The single-call limit is template-dependent. Kimi K3 and Functionary v3.2 in the pinned llama.cpp may still generate multiple calls with `False`; GenieX forwards the option without an additional cutoff.
-
-By default, returns a `str` — formatted prompt ready for `model.generate()`. To enforce the tool grammar and its call limit, use `include_grammar=True` and pass both values explicitly:
+By default, returns a `str` — formatted prompt ready for `model.generate()`. With `include_grammar=True`, pass both values explicitly:
 
 ```python
-template = model.tokenizer.apply_chat_template(
-    messages, tools=tools, include_grammar=True, parallel_tool_calls=False,
-)
+template = model.tokenizer.apply_chat_template(messages, tools=tools, include_grammar=True)
 output = model.generate(
     template.formatted_text,
     chat_template_grammar=template.chat_template_grammar,

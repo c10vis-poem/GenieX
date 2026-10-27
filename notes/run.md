@@ -141,44 +141,6 @@ If you see `Device '…' not found, skipping`, the runtime loaded but the GGML b
 
 > Q4_K_M is a suboptimal quant for HTP — it prefers Q4_0 / Q8_0, so some tensors fall back to CPU. Use Q4_0 for a clean NPU run.
 
-## Tool calls and chat streaming
-
-`geniex serve` can return multiple tool calls in one assistant turn. The HTTP
-`parallel_tool_calls` option defaults to `true`; for supported `llama_cpp`
-LLM/VLM templates, `false` caps tool grammar at one call and `true` permits
-native multi-call capability. Kimi K3 and Functionary v3.2 in the pinned
-llama.cpp may still generate multiple calls with `false`; GenieX forwards the
-option without an independent cutoff. This does not force tool use or execute
-calls on the server.
-QAIRT has no single-call grammar enforcement and rejects `false` when tools
-are supplied, rather than silently ignoring the option.
-
-The option is passed through the Go binding to `parallel_tool_calls` on
-`geniex_LlmApplyChatTemplateInput` / `geniex_VlmApplyChatTemplateInput`. C and
-Go callers must set it explicitly (`true` for the default); Python's
-`ModelTokenizer.apply_chat_template()` and Android's `applyChatTemplate()`
-wrappers default to `true`. Direct SDK/binding users must pass the returned
-chat-template grammar into the generation sampler for its limit to apply.
-Changes to these public input structs require rebuilding the SDK bridge,
-plugins, and all FFI surfaces together; see [CONTRIBUTING.md](../CONTRIBUTING.md).
-
-Successful chat SSE responses commit `Content-Type: text/event-stream` and
-`Cache-Control: no-cache` before any flush. All normal chunks share one
-`id`, `created` (Unix seconds), and `model`, including the terminal chunk and
-optional usage chunk. Intermediate `finish_reason` is `null`; parsed calls
-end with `tool_calls`. With `stream_options.include_usage=true`, one non-null
-usage chunk with `choices: []` precedes `[DONE]`. Generation errors terminate
-with an error event instead of that successful terminal sequence.
-
-For a native regression check, rebuild the SDK and CLI first, then request
-two distinct calls with the same model under omitted / `true` / `false`
-settings, both blocking and streaming. Toggle the flag in one live server to
-exercise cached sessions, and verify one tool-result message per returned
-call ID, increasing stream call indexes, committed headers, stable chunk
-metadata, and exactly one usage chunk when requested. Keep unit/coverage
-results separate from real `geniex serve` results, and state the tested
-model, runtime, compute unit, and media inputs explicitly.
-
 ## Running QAIRT models
 
 QAIRT exposes only its Hexagon NPU compute unit (`plugin_id="qairt"`, `device_id="NPU"`). The SDK's `geniex_resolve_device` coerces `--device cpu` / `gpu` / `hybrid` to `npu` with a stderr warning so existing shell pipelines don't break — expect a line like:

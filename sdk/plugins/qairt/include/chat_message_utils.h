@@ -7,7 +7,6 @@
 #pragma once
 
 #include <cstdint>
-#include <string_view>
 #include <utility>
 
 #include "geniex-proc/types.h"  // geniex::ChatMessage, geniex::ToolCall
@@ -15,16 +14,6 @@
 #include "logging.h"
 
 namespace geniex::qairt {
-
-inline bool has_tools(const char* tools) {
-    if (!tools || !tools[0]) return false;
-    const std::string_view json(tools);
-    const auto             open = json.find_first_not_of(" \t\r\n");
-    if (open == std::string_view::npos || json[open] != '[') return true;
-    const auto close = json.find_first_not_of(" \t\r\n", open + 1);
-    return close == std::string_view::npos || json[close] != ']' ||
-           json.find_first_not_of(" \t\r\n", close + 1) != std::string_view::npos;
-}
 
 // Templates need tool_calls structurally, not as assistant text: most render a
 // "tool" message only from the tool_calls of the assistant turn before it

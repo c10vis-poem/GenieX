@@ -321,11 +321,7 @@ func runChat[T, M any](c *gin.Context, param ChatCompletionRequest, modelParam t
 		Fresh:    acquired.Fresh,
 	})
 	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, geniex_sdk.ErrCommonParamNotSupported) {
-			status = http.StatusBadRequest
-		}
-		c.JSON(status, map[string]any{"error": err.Error(), "code": geniex_sdk.SDKErrorCode(err)})
+		c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error(), "code": geniex_sdk.SDKErrorCode(err)})
 		return
 	}
 
