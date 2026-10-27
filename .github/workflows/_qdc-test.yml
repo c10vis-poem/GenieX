@@ -4,8 +4,8 @@ name: QDC Test
 # artifacts; this workflow never builds. Called by test.yml (nightly / tag /
 # dispatch, tier=full) and pr-check.yml (change-gated, tier=pr).
 #
-# tier=pr is the smoke set: windows + android only (QCS9075M queues for up to
-# 2h), no CPU cells (test-sdk-ci covers them), no `nightly`-marked models.
+# tier=pr is the smoke set: windows + android only (QCS9075M often queues for
+# hours), no CPU cells (test-sdk-ci covers them), no `nightly`-marked models.
 
 on:
   workflow_call:
@@ -29,7 +29,9 @@ jobs:
   qdc:
     name: ${{ matrix.platform }} (${{ matrix.device }})
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ inputs.tier == 'pr' && 90 || 345 }}
+    # Device queueing alone has reached ~3h (v0.9.4-rc.1), so the PR tier needs
+    # far more than its ~25 min run.
+    timeout-minutes: ${{ inputs.tier == 'pr' && 240 || 345 }}
     strategy:
       fail-fast: false
       matrix:
@@ -110,8 +112,9 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
           DEVICE: ${{ matrix.device }}
           TIER: ${{ inputs.tier }}
-          # QDC reservation seconds; full matches bench's 330 min under the 6h runner cap.
-          JOB_TIMEOUT: ${{ inputs.tier == 'pr' && 4800 || 19800 }}
+          # QDC wait in seconds, queue included; ~20 min under timeout-minutes
+          # for log download. full matches bench's 330 min under the 6h runner cap.
+          JOB_TIMEOUT: ${{ inputs.tier == 'pr' && 13200 || 19800 }}
         # exec so a runner cancel's SIGINT reaches python, which aborts the QDC job.
         run: >
           exec python tests/qdc/run_qdc_pytest.py
