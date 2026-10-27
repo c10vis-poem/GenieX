@@ -34,9 +34,7 @@ type streamChoice struct {
 }
 
 type streamChunk struct {
-	ID      string                  `json:"id"`
-	Created int64                   `json:"created"`
-	Model   string                  `json:"model"`
+	responseMetadata
 	Object  string                  `json:"object"`
 	Choices []streamChoice          `json:"choices"`
 	Usage   *openai.CompletionUsage `json:"usage,omitempty"`
@@ -50,7 +48,7 @@ func newStreamWriter(c *gin.Context, model string) func(streamChunk) {
 	c.Header("Cache-Control", "no-cache")
 	meta := newResponseMetadata("chatcmpl", model)
 	return func(chunk streamChunk) {
-		chunk.ID, chunk.Created, chunk.Model = meta.ID, meta.Created, meta.Model
+		chunk.responseMetadata = meta
 		c.SSEvent("", chunk)
 	}
 }
