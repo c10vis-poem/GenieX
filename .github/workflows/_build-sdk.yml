@@ -91,8 +91,12 @@ jobs:
         with:
           version_tag: ${{ inputs.version_tag }}
 
+      # ccache and the CMake build dir are only saved from main. A PR, tag or
+      # release entry is readable by that ref alone, and those entries pushed
+      # main's out of the 10 GB repo cache, so later PRs started cold.
       - name: Restore ccache
-        uses: actions/cache@v6
+        id: ccache
+        uses: actions/cache/restore@v6
         with:
           path: ${{ github.workspace }}/.ccache
           key: ccache-sdk-${{ matrix.platform }}-${{ github.sha }}
@@ -140,7 +144,8 @@ jobs:
       # configure-time inputs; a change there mints a new entry, while
       # restore-keys lets unchanged-config runs reuse the previous tree.
       - name: Restore CMake build dir
-        uses: actions/cache@v6
+        id: cmake-build
+        uses: actions/cache/restore@v6
         with:
           path: sdk/build-${{ matrix.preset }}
           key: cmake-build-${{ matrix.platform }}-${{ steps.tc.outputs.tag }}-${{ hashFiles('sdk/CMakeLists.txt', 'sdk/**/CMakeLists.txt', 'sdk/CMakePresets.json', 'sdk/cmake/**', 'sdk/patches/**', '.gitmodules', 'third-party/**/CMakeLists.txt', 'third-party/**/*.cmake', 'third-party/**/cmake/**') }}-${{ github.sha }}
@@ -299,6 +304,20 @@ jobs:
         if: matrix.platform == 'windows-arm64'
         shell: powershell
         run: ccache --show-stats --verbose; $true
+
+      - name: Save ccache
+        if: github.ref == 'refs/heads/main' && steps.ccache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ steps.ccache.outputs.cache-primary-key }}
+
+      - name: Save CMake build dir
+        if: github.ref == 'refs/heads/main' && steps.cmake-build.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: sdk/build-${{ matrix.preset }}
+          key: ${{ steps.cmake-build.outputs.cache-primary-key }}
 
       - name: Upload SDK artifact
         if: inputs.upload_artifact
