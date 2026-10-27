@@ -169,6 +169,22 @@ type prepareInput[M any] struct {
 	Fresh    bool
 }
 
+// chatGenerationConfig forwards request values without text matching: llama_cpp
+// matches exact decoded token pieces, and QAIRT VLM currently ignores stop values.
+func chatGenerationConfig(req ChatCompletionRequest, sampler *geniex_sdk.SamplerConfig, images, audios []string) *geniex_sdk.GenerationConfig {
+	stop := req.Stop.OfStringArray
+	if !param.IsOmitted(req.Stop.OfString) && req.Stop.OfString.Value != "" {
+		stop = []string{req.Stop.OfString.Value}
+	}
+	return &geniex_sdk.GenerationConfig{
+		MaxTokens:     int32(req.MaxCompletionTokens.Value),
+		Stop:          stop,
+		SamplerConfig: sampler,
+		ImagePaths:    images,
+		AudioPaths:    audios,
+	}
+}
+
 // prepareFn holds the LLM/VLM-specific work: apply the chat template and
 // return the formatted prompt plus a generateFn.
 type prepareFn[T, M any] func(p *T, input prepareInput[M]) (prompt string, gen generateFn, err error)
@@ -185,14 +201,12 @@ func prepareLLM(p *geniex_sdk.LLM, input prepareInput[[]geniex_sdk.LlmChatMessag
 		return "", nil, err
 	}
 	input.Sampler.ChatTemplateGrammar = formatted.ChatTemplateGrammar
+	config := chatGenerationConfig(input.Param, &input.Sampler, nil, nil)
 	gen := func(prompt string, onToken func(string) bool) (geniex_sdk.ProfileData, string, error) {
 		out, err := p.Generate(geniex_sdk.LlmGenerateInput{
 			PromptUTF8: prompt,
 			OnToken:    onToken,
-			Config: &geniex_sdk.GenerationConfig{
-				MaxTokens:     int32(input.Param.MaxCompletionTokens.Value),
-				SamplerConfig: &input.Sampler,
-			},
+			Config:     config,
 		})
 		if out == nil {
 			return geniex_sdk.ProfileData{}, "", err
@@ -228,16 +242,12 @@ func prepareVLM(p *geniex_sdk.VLM, input prepareInput[[]geniex_sdk.VlmChatMessag
 			}
 		}
 	}
+	config := chatGenerationConfig(input.Param, &input.Sampler, images, audios)
 	gen := func(prompt string, onToken func(string) bool) (geniex_sdk.ProfileData, string, error) {
 		out, err := p.Generate(geniex_sdk.VlmGenerateInput{
 			PromptUTF8: prompt,
 			OnToken:    onToken,
-			Config: &geniex_sdk.GenerationConfig{
-				MaxTokens:     int32(input.Param.MaxCompletionTokens.Value),
-				SamplerConfig: &input.Sampler,
-				ImagePaths:    images,
-				AudioPaths:    audios,
-			},
+			Config:     config,
 		})
 		if out == nil {
 			return geniex_sdk.ProfileData{}, "", err

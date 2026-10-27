@@ -336,3 +336,37 @@ func TestMaxCompletionTokensAlias(t *testing.T) {
 		})
 	}
 }
+
+func TestChatGenerationConfig(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{"omitted", `{}`, nil},
+		{"null", `{"stop":null}`, nil},
+		{"string", `{"stop":"<|endoftext|>"}`, []string{"<|endoftext|>"}},
+		{"empty string", `{"stop":""}`, nil},
+		{"array", `{"stop":["STOP","END"]}`, []string{"STOP", "END"}},
+		{"empty array", `{"stop":[]}`, []string{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, req := bindRequest(t, tc.body)
+			if got := chatGenerationConfig(req, nil, nil, nil).Stop; !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("Stop = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestChatGenerationConfigForwardsFields(t *testing.T) {
+	_, req := bindRequest(t, `{"max_completion_tokens":37,"stop":["END"]}`)
+	sampler := &geniex_sdk.SamplerConfig{TopK: 9}
+	images, audios := []string{"image.png"}, []string{"audio.wav"}
+	got := chatGenerationConfig(req, sampler, images, audios)
+	if got.MaxTokens != 37 || got.SamplerConfig != sampler ||
+		!reflect.DeepEqual(got.ImagePaths, images) || !reflect.DeepEqual(got.AudioPaths, audios) {
+		t.Errorf("config = %+v", got)
+	}
+}
