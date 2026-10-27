@@ -666,7 +666,7 @@ typedef struct {
     const char*            tools;                 /** Tool JSON string (optional, can be NULL) */
     bool                   enable_thinking;       /** Enable thinking */
     bool                   add_generation_prompt; /** Add generation prompt */
-    bool                   parallel_tool_calls;   /** llama_cpp only: false (zero value) limits tool calls to one; ignored by qairt. */
+    bool                   parallel_tool_calls;   /** llama_cpp: false caps tool calls at one; qairt ignores. */
 } geniex_LlmApplyChatTemplateInput;
 
 /** Output structure for applying chat template */
@@ -955,7 +955,7 @@ typedef struct {
 
     // deepseek-ocr
     bool grounding;           /** Enable grounding (Add grounding token) */
-    bool parallel_tool_calls; /** llama_cpp only: false (zero value) limits tool calls to one; ignored by qairt. */
+    bool parallel_tool_calls; /** llama_cpp: false caps tool calls at one; qairt ignores. */
 } geniex_VlmApplyChatTemplateInput;
 
 /** Output structure for applying VLM chat template */
