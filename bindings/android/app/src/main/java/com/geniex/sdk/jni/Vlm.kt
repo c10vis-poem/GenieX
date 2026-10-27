@@ -27,7 +27,8 @@ internal class Vlm {
             handle: Long,
             messages: Array<VlmChatMessage>,
             tools: String?,
-            enableThinking: Boolean
+            enableThinking: Boolean,
+            parallelToolCalls: Boolean = true
     ): LlmApplyChatTemplateOutput
 
     external fun stopStream(handle: Long)

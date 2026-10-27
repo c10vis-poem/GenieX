@@ -161,16 +161,18 @@ func freeVlmChatMessages(cPtr *C.geniex_VlmChatMessage, count C.int32_t) {
 }
 
 type VlmApplyChatTemplateInput struct {
-	Messages    []VlmChatMessage
-	Tools       string
-	EnableThink bool
+	Messages          []VlmChatMessage
+	Tools             string
+	EnableThink       bool
+	ParallelToolCalls bool
 }
 
 func (vati VlmApplyChatTemplateInput) toCPtr() *C.geniex_VlmApplyChatTemplateInput {
 	cPtr := (*C.geniex_VlmApplyChatTemplateInput)(cMalloc(C.sizeof_geniex_VlmApplyChatTemplateInput))
 	*cPtr = C.geniex_VlmApplyChatTemplateInput{
-		tools:           cStringIfSet(vati.Tools),
-		enable_thinking: C.bool(vati.EnableThink),
+		tools:               cStringIfSet(vati.Tools),
+		enable_thinking:     C.bool(vati.EnableThink),
+		parallel_tool_calls: C.bool(vati.ParallelToolCalls),
 	}
 	cPtr.messages, cPtr.message_count = vlmChatMessages(vati.Messages).toCPtr()
 	return cPtr

@@ -210,6 +210,7 @@ int32_t LlamaLlm::apply_chat_template(
     inputs.use_jinja             = true;
     inputs.messages              = common_messages;
     inputs.add_generation_prompt = input->add_generation_prompt;
+    inputs.parallel_tool_calls   = input->parallel_tool_calls;
 
     if (input->tools && strlen(input->tools) > 0) {
         inputs.tools = common_chat_tools_parse_oaicompat(common_json::parse(std::string(input->tools)));

@@ -59,7 +59,8 @@ func defaultChatCompletionRequest() ChatCompletionRequest {
 	cfg := config.Get()
 	return ChatCompletionRequest{
 		ChatCompletionNewParams: ChatCompletionNewParams{
-			Model: cfg.Model,
+			Model:             cfg.Model,
+			ParallelToolCalls: openai.Bool(true),
 			// On the deprecated alias, so an explicit max_completion_tokens wins.
 			MaxTokens: param.NewOpt[int64](2048),
 		},
@@ -178,6 +179,7 @@ func prepareLLM(p *geniex_sdk.LLM, input prepareInput[[]geniex_sdk.LlmChatMessag
 		Tools:               input.Tools,
 		EnableThink:         input.Param.EnableThink,
 		AddGenerationPrompt: true,
+		ParallelToolCalls:   input.Param.ParallelToolCalls.Or(true),
 	})
 	if err != nil {
 		return "", nil, err
@@ -202,9 +204,10 @@ func prepareLLM(p *geniex_sdk.LLM, input prepareInput[[]geniex_sdk.LlmChatMessag
 
 func prepareVLM(p *geniex_sdk.VLM, input prepareInput[[]geniex_sdk.VlmChatMessage]) (string, generateFn, error) {
 	formatted, err := p.ApplyChatTemplate(geniex_sdk.VlmApplyChatTemplateInput{
-		Messages:    input.Messages,
-		Tools:       input.Tools,
-		EnableThink: input.Param.EnableThink,
+		Messages:          input.Messages,
+		Tools:             input.Tools,
+		EnableThink:       input.Param.EnableThink,
+		ParallelToolCalls: input.Param.ParallelToolCalls.Or(true),
 	})
 	if err != nil {
 		return "", nil, err
@@ -360,9 +363,9 @@ func runChat[T, M any](c *gin.Context, param ChatCompletionRequest, modelParam t
 			class = reasoningClass()
 		}
 		if parseTool {
-			streamToolCall(c, dataCh, wait, includeUsage, &profile, class, tools)
+			streamToolCall(c, dataCh, wait, includeUsage, &profile, class, tools, string(param.Model))
 		} else {
-			streamPlainText(c, dataCh, wait, includeUsage, &profile, class)
+			streamPlainText(c, dataCh, wait, includeUsage, &profile, class, string(param.Model))
 		}
 
 		stopGen.Store(true)
@@ -398,7 +401,7 @@ func runChat[T, M any](c *gin.Context, param ChatCompletionRequest, modelParam t
 			return
 		}
 		logProfile(profile)
-		writeBlockingResponse(c, &content, &reasoning, profile, finishToolCalls)
+		writeBlockingResponse(c, &content, &reasoning, profile, finishToolCalls, string(param.Model))
 	}
 }
 

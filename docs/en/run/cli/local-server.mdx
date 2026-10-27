@@ -304,7 +304,7 @@ Function/tool calling uses the standard OpenAI `tools` schema. The server extrac
 The example below walks through a two-step agentic loop with `qualcomm/Qwen3-VL-4B-Instruct`: (1) the VLM identifies a landmark from a photo and calls `web_search`, (2) you execute the search locally and feed the results back so the VLM writes a grounded reply.
 
 <Note>
-Only one tool call per assistant turn is parsed — parallel tool calls in a single response are not supported.
+A response can contain several tool calls; reply with one `role: "tool"` message per `tool_call_id`. Set `parallel_tool_calls: false` to limit llama_cpp models to one call per response (some templates may ignore it). QAIRT ignores this option. The example below handles only the first call.
 </Note>
 
 <Note>

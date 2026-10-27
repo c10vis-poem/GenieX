@@ -298,6 +298,7 @@ class geniex_LlmApplyChatTemplateInput(Structure):
         ('tools', c_char_p),
         ('enable_thinking', c_bool),
         ('add_generation_prompt', c_bool),
+        ('parallel_tool_calls', c_bool),
     ]
 
 
@@ -367,6 +368,7 @@ class geniex_VlmApplyChatTemplateInput(Structure):
         ('tools', c_char_p),
         ('enable_thinking', c_bool),
         ('grounding', c_bool),
+        ('parallel_tool_calls', c_bool),
     ]
 
 

@@ -195,7 +195,8 @@ extern "C" JNIEXPORT void JNICALL Java_com_geniex_sdk_jni_Llm_stopStream(JNIEnv*
 
 // JNI: applyChatTemplate - Format messages with chat template
 extern "C" JNIEXPORT jobject JNICALL Java_com_geniex_sdk_jni_Llm_applyChatTemplate(JNIEnv* env, jobject thiz,
-    jlong handle, jobjectArray jmessages, jstring jtools, jboolean jEnableThinking, jboolean jAddGenerationPrompt) {
+    jlong handle, jobjectArray jmessages, jstring jtools, jboolean jEnableThinking, jboolean jAddGenerationPrompt,
+    jboolean jParallelToolCalls) {
     clear_jni_cstr_pool();
     auto msgs = extract_llm_chat_messages(env, jmessages);
 
@@ -208,7 +209,8 @@ extern "C" JNIEXPORT jobject JNICALL Java_com_geniex_sdk_jni_Llm_applyChatTempla
          .message_count                               = static_cast<int32_t>(msgs.size()),
          .tools                                       = tools_cstr,
          .enable_thinking                             = (jEnableThinking == JNI_TRUE),
-         .add_generation_prompt                       = (jAddGenerationPrompt == JNI_TRUE)};
+         .add_generation_prompt                       = (jAddGenerationPrompt == JNI_TRUE),
+         .parallel_tool_calls                         = (jParallelToolCalls == JNI_TRUE)};
     geniex_LlmApplyChatTemplateOutput output{};
 
     int32_t ret = geniex_llm_apply_chat_template(reinterpret_cast<geniex_LLM*>(handle), &input, &output);

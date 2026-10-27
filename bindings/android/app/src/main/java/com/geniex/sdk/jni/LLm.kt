@@ -18,7 +18,8 @@ internal class Llm {
         messages: Array<ChatMessage>,
         tools: String?,
         enableThinking: Boolean,
-        addGenerationPrompt: Boolean = true
+        addGenerationPrompt: Boolean = true,
+        parallelToolCalls: Boolean = true
     ): LlmApplyChatTemplateOutput
 
     external fun generate(

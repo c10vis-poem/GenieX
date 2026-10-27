@@ -54,7 +54,7 @@ func runStreamToolCallWithTools(t *testing.T, class tokenClass, tools string, to
 	}
 	close(dataCh)
 	profile := geniex_sdk.ProfileData{StopReason: "eos"}
-	streamToolCall(c, dataCh, func() error { return nil }, false, &profile, class, tools)
+	streamToolCall(c, dataCh, func() error { return nil }, false, &profile, class, tools, "test-model")
 	if !strings.Contains(w.Body.String(), "data:[DONE]") {
 		t.Error("stream omitted [DONE]")
 	}

@@ -151,10 +151,11 @@ private constructor(
     suspend fun applyChatTemplate(
             messages: Array<VlmChatMessage>,
             tools: String?,
-            enableThinking: Boolean
+            enableThinking: Boolean,
+            parallelToolCalls: Boolean = true
     ): Result<LlmApplyChatTemplateOutput> =
             withContext(dispatcher) {
-                runCatching { vlm.applyChatTemplate(handle, messages, tools, enableThinking) }
+                runCatching { vlm.applyChatTemplate(handle, messages, tools, enableThinking, parallelToolCalls) }
             }
 
     /** Resets the VLM state. */

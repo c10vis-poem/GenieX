@@ -2,7 +2,10 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library")
 
 go_library(
     name = "types",
-    srcs = ["model.go"],
+    srcs = [
+        "model.go",
+        "response_metadata.go",
+    ],
     importpath = "github.com/qualcomm/GenieX/cli/server/types",
     visibility = ["//cli:__subpackages__"],
     deps = ["//bindings/go:geniex_sdk_go"],

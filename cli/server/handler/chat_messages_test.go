@@ -43,6 +43,25 @@ func bindRequest(t *testing.T, body string) (*gin.Context, ChatCompletionRequest
 	return c, param
 }
 
+func TestParallelToolCallsRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		want       bool
+	}{
+		{name: "default", body: `{}`, want: true},
+		{name: "true", body: `{"parallel_tool_calls":true}`, want: true},
+		{name: "false", body: `{"parallel_tool_calls":false}`, want: false},
+		{name: "null", body: `{"parallel_tool_calls":null}`, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, request := bindRequest(t, tc.body)
+			if got := request.ParallelToolCalls.Or(true); got != tc.want {
+				t.Errorf("parallel_tool_calls = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // Regression: tool calls used to be flattened into assistant text, which left
 // the following `tool` message invisible to templates that render a tool
 // response only from the tool_calls of the turn before it.

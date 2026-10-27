@@ -66,13 +66,14 @@ class LlmWrapper private constructor(
         messages: Array<ChatMessage>,
         tools: String?,
         enableThinking: Boolean,
-        addGenerationPrompt: Boolean = true
+        addGenerationPrompt: Boolean = true,
+        parallelToolCalls: Boolean = true
     ): Result<LlmApplyChatTemplateOutput> =
         withContext(dispatcher) {
             if (handle == 0L) {
                 return@withContext Result.failure(IllegalStateException("Llm not initialized"))
             }
-            runCatching { llm.applyChatTemplate(handle, messages, tools, enableThinking, addGenerationPrompt) }
+            runCatching { llm.applyChatTemplate(handle, messages, tools, enableThinking, addGenerationPrompt, parallelToolCalls) }
         }
 
     // Generate tokens with streaming using Kotlin Flow.

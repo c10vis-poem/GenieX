@@ -283,6 +283,7 @@ class GenieXLLM:
         enable_thinking: bool,
         tools: str | None,
         include_grammar: bool = False,
+        parallel_tool_calls: bool = True,
     ) -> str | ChatTemplateOutput:
         lib = load_library()
         count = len(messages)
@@ -304,6 +305,7 @@ class GenieXLLM:
             tools=_enc(tools),
             enable_thinking=enable_thinking,
             add_generation_prompt=add_generation_prompt,
+            parallel_tool_calls=parallel_tool_calls,
         )
         out = geniex_LlmApplyChatTemplateOutput()
         try:
@@ -626,6 +628,7 @@ class GenieXVLM:
         enable_thinking: bool,
         tools: str | None,
         include_grammar: bool = False,
+        parallel_tool_calls: bool = True,
     ) -> str | ChatTemplateOutput:
         lib = load_library()
         self._last_template_has_image = _messages_have_modality(messages, 'image')
@@ -636,6 +639,7 @@ class GenieXVLM:
             message_count=count,
             tools=_enc(tools),
             enable_thinking=enable_thinking,
+            parallel_tool_calls=parallel_tool_calls,
         )
         out = geniex_VlmApplyChatTemplateOutput()
         try:

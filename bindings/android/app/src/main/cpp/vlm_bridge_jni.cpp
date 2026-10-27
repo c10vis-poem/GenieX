@@ -186,8 +186,8 @@ extern "C" JNIEXPORT jobject JNICALL Java_com_geniex_sdk_jni_Vlm_generate(
     }
 }
 
-extern "C" JNIEXPORT jobject JNICALL Java_com_geniex_sdk_jni_Vlm_applyChatTemplate(
-    JNIEnv* env, jobject /*thiz*/, jlong handle, jobjectArray jmessages, jstring jtools, jboolean jEnableThinking) {
+extern "C" JNIEXPORT jobject JNICALL Java_com_geniex_sdk_jni_Vlm_applyChatTemplate(JNIEnv* env, jobject /*thiz*/,
+    jlong handle, jobjectArray jmessages, jstring jtools, jboolean jEnableThinking, jboolean jParallelToolCalls) {
     clear_jni_cstr_pool();
     auto msgs = extract_vlm_chat_messages(env, jmessages);
 
@@ -201,7 +201,8 @@ extern "C" JNIEXPORT jobject JNICALL Java_com_geniex_sdk_jni_Vlm_applyChatTempla
     geniex_VlmApplyChatTemplateInput  input{.messages = msgs.data(),
          .message_count                               = static_cast<int32_t>(msgs.size()),
          .tools                                       = tools_cstr,
-         .enable_thinking                             = (jEnableThinking == JNI_TRUE)};
+         .enable_thinking                             = (jEnableThinking == JNI_TRUE),
+         .parallel_tool_calls                         = (jParallelToolCalls == JNI_TRUE)};
     geniex_VlmApplyChatTemplateOutput output{};
 
     int32_t ret = geniex_vlm_apply_chat_template(reinterpret_cast<geniex_VLM*>(handle), &input, &output);

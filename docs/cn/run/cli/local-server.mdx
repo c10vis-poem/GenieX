@@ -261,7 +261,7 @@ print("content:", msg.content)
 下面的示例用 `qualcomm/Qwen3-VL-4B-Instruct` 演示两步 agentic 回路：(1) VLM 从照片中识别地标并调用 `web_search`；(2) 本地执行搜索并将结果回传，VLM 基于结果生成带依据的回复。
 
 <Note>
-每次助手响应仅解析一个工具调用——暂不支持单次响应中的并行工具调用。
+一次响应可能包含多个工具调用；请为每个 `tool_call_id` 回传一条 `role: "tool"` 消息。设置 `parallel_tool_calls: false` 可让 llama_cpp 模型每次最多返回一个调用（部分 template 可能忽略）。QAIRT 会忽略该选项。下方示例仅处理第一个调用。
 </Note>
 
 <Note>

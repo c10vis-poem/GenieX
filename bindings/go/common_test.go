@@ -29,6 +29,22 @@ func TestCStringIfSet(t *testing.T) {
 	}
 }
 
+func TestParallelToolCallsFFI(t *testing.T) {
+	for _, parallel := range []bool{false, true} {
+		llm := (LlmApplyChatTemplateInput{ParallelToolCalls: parallel}).toCPtr()
+		if got := bool(llm.parallel_tool_calls); got != parallel {
+			t.Errorf("LLM parallel_tool_calls = %v, want %v", got, parallel)
+		}
+		freeLlmApplyChatTemplateInput(llm)
+
+		vlm := (VlmApplyChatTemplateInput{ParallelToolCalls: parallel}).toCPtr()
+		if got := bool(vlm.parallel_tool_calls); got != parallel {
+			t.Errorf("VLM parallel_tool_calls = %v, want %v", got, parallel)
+		}
+		freeVlmApplyChatTemplateInput(vlm)
+	}
+}
+
 // NULL user_data must keep generation alive; an installed callback's return
 // value must propagate so the user can stop.
 func TestOnTokenCallbackDispatch(t *testing.T) {

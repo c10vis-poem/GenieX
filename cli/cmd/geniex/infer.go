@@ -539,6 +539,7 @@ func inferLLM(ctx context.Context, paths *geniex_sdk.ModelPaths, resolvedPowerMo
 					Messages:            history,
 					EnableThink:         enableThink,
 					AddGenerationPrompt: true,
+					ParallelToolCalls:   true,
 				})
 				if err != nil {
 					return "", geniex_sdk.ProfileData{}, err
@@ -693,8 +694,9 @@ func inferVLM(paths *geniex_sdk.ModelPaths, resolvedPowerMode geniex_sdk.PowerMo
 			history = append(history, msg)
 
 			tmplOut, err := p.ApplyChatTemplate(geniex_sdk.VlmApplyChatTemplateInput{
-				Messages:    history,
-				EnableThink: enableThink,
+				Messages:          history,
+				EnableThink:       enableThink,
+				ParallelToolCalls: true,
 			})
 			if err != nil {
 				return "", geniex_sdk.ProfileData{}, err
