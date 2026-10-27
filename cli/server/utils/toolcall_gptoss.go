@@ -4,9 +4,8 @@
 package utils
 
 import (
+	"encoding/json"
 	"strings"
-
-	"github.com/bytedance/sonic"
 )
 
 // GPT-OSS addresses a call to the tool namespace in a message header, the recipient
@@ -167,7 +166,7 @@ func parseGptOssToolCalls(s string) []toolCallFn {
 		}
 		args := s[brace : brace+end]
 		s = s[brace+end:]
-		if name == "" || !sonic.ValidString(args) {
+		if name == "" || !json.Valid([]byte(args)) {
 			continue
 		}
 		calls = append(calls, toolCallFn{Name: name, Arguments: args})

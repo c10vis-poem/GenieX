@@ -116,7 +116,7 @@ func (t *ministral3ToolCall) parse(s string) []toolCallFn {
 		if end < 0 {
 			break
 		}
-		// sonic.ValidString can accept invalid JSON on arm64 when the string ends mid-buffer.
+		// sonic.ValidString intermittently accepts invalid JSON on arm64; use the stdlib validator.
 		if scan.body > 0 && json.Valid([]byte(s[scan.body:end])) {
 			calls = append(calls, toolCallFn{
 				Name: s[scan.begin.done:scan.nameEnd], Arguments: s[scan.body:end],

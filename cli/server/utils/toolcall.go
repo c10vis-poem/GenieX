@@ -4,9 +4,8 @@
 package utils
 
 import (
+	"encoding/json"
 	"strings"
-
-	"github.com/bytedance/sonic"
 
 	"github.com/qualcomm/GenieX/cli/internal/thinkfsm"
 )
@@ -55,7 +54,7 @@ func (p *ToolCallParser) resetTool() {
 func (p *ToolCallParser) finishTool() []ToolCallEvent {
 	var calls []toolCallFn
 	header, args := p.header.String(), strings.TrimSpace(p.args.String())
-	if p.inBody && strings.HasPrefix(header, gptOssRecipient) && strings.HasPrefix(args, "{") && sonic.ValidString(args) {
+	if p.inBody && strings.HasPrefix(header, gptOssRecipient) && strings.HasPrefix(args, "{") && json.Valid([]byte(args)) {
 		name := header[len(gptOssRecipient):]
 		name = name[:gptOssNameEnd(name)]
 		if name != "" {
