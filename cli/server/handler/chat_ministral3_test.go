@@ -89,7 +89,7 @@ func TestMinistral3ChatResponses(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
-			writeBlockingResponse(c, &content, &reasoning, geniex_sdk.ProfileData{StopReason: "eos"}, finish)
+			writeBlockingResponse(c, &content, &reasoning, geniex_sdk.ProfileData{StopReason: "eos"}, finish, "test-model")
 			var body blockingBody
 			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 				t.Fatal(err)
