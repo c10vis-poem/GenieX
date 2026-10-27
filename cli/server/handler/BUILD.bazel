@@ -10,7 +10,6 @@ go_library(
         "chat_stream.go",
         "chat_token.go",
         "completion.go",
-        "response_metadata.go",
         "logits.go",
         "model.go",
         "decisions.go",

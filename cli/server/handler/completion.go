@@ -245,7 +245,7 @@ type completionStreamChoice struct {
 }
 
 type completionStreamChunk struct {
-	responseMetadata
+	types.ResponseMetadata
 	Object  string                   `json:"object"`
 	Choices []completionStreamChoice `json:"choices"`
 	Usage   *openai.CompletionUsage  `json:"usage,omitempty"`
@@ -276,9 +276,9 @@ func completionUsageChunk(u openai.CompletionUsage, t timings) completionStreamC
 func streamCompletion(c *gin.Context, dataCh <-chan string, wait func() error, includeUsage bool, echo string, profile *geniex_sdk.ProfileData, model string) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
-	meta := newResponseMetadata("cmpl", model)
+	meta := types.NewResponseMetadata("cmpl", model)
 	send := func(chunk completionStreamChunk) {
-		chunk.responseMetadata = meta
+		chunk.ResponseMetadata = meta
 		c.SSEvent("", chunk)
 	}
 	first := echo != ""
@@ -318,7 +318,7 @@ type completionChoice struct {
 }
 
 type completionResponse struct {
-	responseMetadata
+	types.ResponseMetadata
 	Object  string                 `json:"object"`
 	Choices []completionChoice     `json:"choices"`
 	Usage   openai.CompletionUsage `json:"usage"`
@@ -327,7 +327,7 @@ type completionResponse struct {
 
 func writeCompletionResponse(c *gin.Context, text string, profile geniex_sdk.ProfileData, model string) {
 	c.JSON(http.StatusOK, completionResponse{
-		responseMetadata: newResponseMetadata("cmpl", model),
+		ResponseMetadata: types.NewResponseMetadata("cmpl", model),
 		Object:           completionObject,
 		Choices: []completionChoice{{
 			Text:         text,

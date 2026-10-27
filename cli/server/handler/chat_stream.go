@@ -15,6 +15,7 @@ import (
 
 	geniex_sdk "github.com/qualcomm/GenieX/bindings/go"
 	"github.com/qualcomm/GenieX/cli/internal/thinkfsm"
+	"github.com/qualcomm/GenieX/cli/server/types"
 	"github.com/qualcomm/GenieX/cli/server/utils"
 )
 
@@ -34,7 +35,7 @@ type streamChoice struct {
 }
 
 type streamChunk struct {
-	responseMetadata
+	types.ResponseMetadata
 	Object  string                  `json:"object"`
 	Choices []streamChoice          `json:"choices"`
 	Usage   *openai.CompletionUsage `json:"usage,omitempty"`
@@ -46,9 +47,9 @@ const streamChunkObject = "chat.completion.chunk"
 func newStreamWriter(c *gin.Context, model string) func(streamChunk) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
-	meta := newResponseMetadata("chatcmpl", model)
+	meta := types.NewResponseMetadata("chatcmpl", model)
 	return func(chunk streamChunk) {
-		chunk.responseMetadata = meta
+		chunk.ResponseMetadata = meta
 		c.SSEvent("", chunk)
 	}
 }

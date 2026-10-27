@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Qualcomm Technologies, Inc. and/or its subsidiaries.
+// Copyright 2024-2026 Qualcomm Technologies, Inc. and/or its subsidiaries.
 // SPDX-License-Identifier: BSD-3-Clause
 
 package handler
@@ -15,11 +15,12 @@ import (
 	"github.com/gin-gonic/gin"
 
 	geniex_sdk "github.com/qualcomm/GenieX/bindings/go"
+	"github.com/qualcomm/GenieX/cli/server/types"
 )
 
-func checkResponseMetadata(t *testing.T, body []byte, prefix, model string) responseMetadata {
+func checkResponseMetadata(t *testing.T, body []byte, prefix, model string) types.ResponseMetadata {
 	t.Helper()
-	var meta responseMetadata
+	var meta types.ResponseMetadata
 	if err := json.Unmarshal(body, &meta); err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +92,7 @@ func TestCompletionSSEProtocol(t *testing.T) {
 			if result.StatusCode != 200 {
 				t.Fatalf("committed status: %d", result.StatusCode)
 			}
-			var meta responseMetadata
+			var meta types.ResponseMetadata
 			var text strings.Builder
 			chunks, textChunks, finishes, usage, done, failures := 0, 0, 0, 0, 0, 0
 			for _, line := range strings.Split(w.Body.String(), "\n") {
