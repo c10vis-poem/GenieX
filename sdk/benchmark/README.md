@@ -220,7 +220,7 @@ Run `geniex-bench --help` for the full flag list.
   "model_id": "ggml-org/Qwen3-0.6B-GGUF:Q4_0",
   "model_size_bytes": 368705536,
   "geniex_version": "v0.3.1",
-  "qairt_version": "2.45",
+  "qairt_version": null,
   "llama_cpp_version": "b4920-abc1234",
   "params": { "warmup": 1, "repetitions": 3, "n_gen": 128, ... },
   "runs": [ { "run_idx": 0, "ttft_us": 49758, "prefill_tps": 102.1, ... }, ... ],
@@ -235,10 +235,8 @@ Run `geniex-bench --help` for the full flag list.
 ```
 
 `geniex_version` is the SDK bridge version (`geniex_version()`); `qairt_version`/`llama_cpp_version`
-are whichever plugin each cell's `--plugin` used (`geniex_get_plugin_version(...)`), but note
-`report.c` currently writes both plugin-version fields on every cell regardless of `--plugin`, so a
-`llama_cpp`-plugin cell's `qairt_version` reflects whatever QAIRT plugin happens to be registered in
-that binary, not necessarily anything relevant to that cell.
+come from the cell's `--plugin` (`geniex_get_plugin_version(...)`); the other plugin's field is
+`null`, since querying it would instantiate a plugin the cell never uses.
 
 ## Accuracy mode output
 
