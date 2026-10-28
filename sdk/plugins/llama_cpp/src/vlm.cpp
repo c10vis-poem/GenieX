@@ -659,7 +659,7 @@ int32_t LlamaVlm::generate(const geniex_VlmGenerateInput* input, geniex_VlmGener
             if (needed == 0) return GENIEX_ERROR_LLM_TOKENIZATION_FAILED;
 
             // Allocate and tokenize
-            int32_t* prompt_tokens = (int32_t*)malloc(sizeof(int32_t) * needed);
+            int32_t* prompt_tokens = (int32_t*)calloc(needed, sizeof(int32_t));
             if (!prompt_tokens) return GENIEX_ERROR_COMMON_MEMORY_ALLOCATION;
 
             int32_t prompt_len = llama_tokenize(

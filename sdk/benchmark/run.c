@@ -233,7 +233,7 @@ static int32_t* make_random_tokens(geniex_LLM* llm, const options_t* o, const ch
         exit(1);
     }
 
-    int32_t* tokens = (int32_t*)malloc((size_t)o->n_prompt * sizeof(int32_t));
+    int32_t* tokens = (int32_t*)calloc((size_t)o->n_prompt, sizeof(int32_t));
     if (!tokens) {
         fprintf(stderr, "ERROR: oom allocating %d prompt tokens\n", o->n_prompt);
         geniex_llm_destroy(llm);
