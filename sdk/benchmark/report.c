@@ -106,8 +106,12 @@ int write_cell_json(const options_t* o, const device_t* dev, int64_t model_size_
     json_field_str(f, "model_id", o->model_id, false);
     json_field_i64(f, "model_size_bytes", model_size_bytes, false);
     json_field_str(f, "geniex_version", geniex_version(), false);
-    json_field_str(f, "qairt_version", geniex_get_plugin_version("qairt"), false);
-    json_field_str(f, "llama_cpp_version", geniex_get_plugin_version("llama_cpp"), false);
+    /* Query only this cell's plugin: geniex_get_plugin_version instantiates the
+     * plugin, and creating llama_cpp just for its version string opens a
+     * second HTP session that nothing in a qairt cell uses. */
+    const bool is_qairt = strcmp(o->plugin, "qairt") == 0;
+    json_field_str(f, "qairt_version", is_qairt ? geniex_get_plugin_version("qairt") : NULL, false);
+    json_field_str(f, "llama_cpp_version", is_qairt ? NULL : geniex_get_plugin_version("llama_cpp"), false);
     fprintf(f, "    \"params\": {\n");
     fprintf(f,
         "      \"warmup\": %d, \"repetitions\": %d, \"n_prompt\": %d, \"n_gen\": %d,\n"
