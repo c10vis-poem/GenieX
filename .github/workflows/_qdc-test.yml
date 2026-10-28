@@ -20,6 +20,9 @@ on:
         required: false
         type: string
         default: full
+    secrets:
+      QDC_API_KEY:
+        required: false
 
 permissions:
   contents: read
