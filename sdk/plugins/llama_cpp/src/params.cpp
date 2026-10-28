@@ -157,7 +157,9 @@ void warmup_context(const llama_model* model, llama_context* ctx) {
     if (llama_vocab_eos(vocab) != LLAMA_TOKEN_NULL) tokens.push_back(llama_vocab_eos(vocab));
     if (tokens.empty()) tokens.push_back(0);
 
-    if (llama_decode(ctx, llama_batch_get_one(tokens.data(), static_cast<int32_t>(tokens.size()))) != 0) {
+    // llama_decode asserts n_tokens <= n_batch, so clamp like common_init_from_params does.
+    const auto n_tokens = std::min<size_t>(tokens.size(), llama_n_batch(ctx));
+    if (llama_decode(ctx, llama_batch_get_one(tokens.data(), static_cast<int32_t>(n_tokens))) != 0) {
         GENIEX_LOG_WARN("model warmup decode failed");
     }
     llama_synchronize(ctx);
