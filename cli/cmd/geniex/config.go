@@ -4,9 +4,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -137,7 +137,7 @@ func pickChipset() (string, error) {
 		return "", fmt.Errorf("failed to fetch chipset list: %w", err)
 	}
 	if len(chipsets) == 0 {
-		return "", fmt.Errorf("no chipsets available from the hub")
+		return "", errors.New("no chipsets available from the hub")
 	}
 
 	// Probe the host so we can preselect its chipset; failure is non-fatal.
@@ -193,9 +193,8 @@ func configListCmd() *cobra.Command {
 				return fmt.Errorf("failed to read configuration: %w", err)
 			}
 
-			keys := make([]string, 0, len(store.ConfigKeys))
-			keys = append(keys, store.ConfigKeys...)
-			sort.Strings(keys)
+			keys := slices.Clone(store.ConfigKeys)
+			slices.Sort(keys)
 
 			for _, key := range keys {
 				value := cfg[key]

@@ -57,7 +57,7 @@ type braceWalk struct {
 }
 
 func (w *braceWalk) feed(s string) int {
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		if w.inStr {
 			switch {

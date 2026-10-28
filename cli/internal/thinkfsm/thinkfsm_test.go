@@ -464,7 +464,7 @@ func TestGPTOSSParsing(t *testing.T) {
 			{"ignored", []string{"<|channel|>", "custom", "<|message|>", "hidden", "<|end|>"}, []EventKind{Consume, Consume, Consume, Consume, Consume}},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
-				for n := 0; n < len(tc.tokens); n++ {
+				for n := range len(tc.tokens) {
 					t.Run("prefix "+strconv.Itoa(n), func(t *testing.T) {
 						checkTokens(t, New(), tc.tokens[:n], tc.kinds[:n])
 					})

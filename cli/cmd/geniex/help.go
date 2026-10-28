@@ -37,8 +37,9 @@ func colorPlaceholders(s string) string {
 
 func colorFlagUsages(usages string) string {
 	t := render.GetTheme()
-	lines := strings.Split(usages, "\n")
-	for i, line := range lines {
+	var sb strings.Builder
+	sb.Grow(len(usages))
+	for line := range strings.Lines(usages) {
 		line = flagPattern.ReplaceAllStringFunc(line, func(m string) string {
 			sub := flagPattern.FindStringSubmatch(m)
 			out := sub[1] + t.Flag.Sprint(sub[2])
@@ -50,9 +51,9 @@ func colorFlagUsages(usages string) string {
 		line = parenHintPattern.ReplaceAllStringFunc(line, func(m string) string {
 			return t.Reference.Sprint(m)
 		})
-		lines[i] = line
+		sb.WriteString(line)
 	}
-	return strings.Join(lines, "\n")
+	return sb.String()
 }
 
 func colorUseLine(c *cobra.Command) string {

@@ -114,9 +114,13 @@ func serve() *cobra.Command {
 		}
 
 		handler.Version = Version
-		server.Serve()
+		err := server.Serve()
 
 		geniex_sdk.DeInit()
+		if err != nil {
+			common.PrintError(err)
+			os.Exit(1)
+		}
 	}
 
 	return serveCmd

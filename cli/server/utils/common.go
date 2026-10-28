@@ -46,20 +46,20 @@ func SaveURIToTempFile(uri string) (string, error) {
 			return "", err
 		}
 	case "data":
-		parts := strings.SplitN(u.Opaque, ",", 2)
-		if len(parts) != 2 {
+		header, payload, ok := strings.Cut(u.Opaque, ",")
+		if !ok {
 			return "", errors.New("invalid data URI format")
 		}
 		// format: data:[<mediatype>][;base64],<data>
-		if strings.Contains(parts[0], ";base64") {
-			data, err = base64.StdEncoding.DecodeString(parts[1])
+		if strings.Contains(header, ";base64") {
+			data, err = base64.StdEncoding.DecodeString(payload)
 			if err != nil {
 				return "", err
 			}
 
 		} else {
 			// format: data:[<mediatype>],<data>
-			decoded, err := url.QueryUnescape(parts[1])
+			decoded, err := url.QueryUnescape(payload)
 			if err != nil {
 				return "", err
 			}

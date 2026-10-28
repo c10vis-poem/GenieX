@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -215,7 +216,7 @@ func getLatestVersion() (string, error) {
 		return "", err
 	}
 	if idx.LatestStable == "" {
-		return "", fmt.Errorf("no stable release found in index")
+		return "", errors.New("no stable release found in index")
 	}
 	return idx.LatestStable, nil
 }

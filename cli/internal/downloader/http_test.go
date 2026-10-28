@@ -5,7 +5,6 @@ package downloader
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"net"
@@ -71,7 +70,7 @@ func TestDownloadChunk_CrossHostRedirectStripsAuth(t *testing.T) {
 	d := NewDownloader()
 	d.AuthToken = "secret-token"
 	var buf bytes.Buffer
-	if err := d.DownloadChunk(context.Background(), origin.URL, 0, 5, &buf); err != nil {
+	if err := d.DownloadChunk(t.Context(), origin.URL, 0, 5, &buf); err != nil {
 		t.Fatalf("DownloadChunk: %v", err)
 	}
 	if buf.String() != "hello" {
@@ -91,7 +90,7 @@ func TestDownloadChunk_SameHostRedirectPreservesAuth(t *testing.T) {
 	d := NewDownloader()
 	d.AuthToken = "secret-token"
 	var buf bytes.Buffer
-	if err := d.DownloadChunk(context.Background(), origin.URL, 0, 5, &buf); err != nil {
+	if err := d.DownloadChunk(t.Context(), origin.URL, 0, 5, &buf); err != nil {
 		t.Fatalf("DownloadChunk: %v", err)
 	}
 	if !authSeen.Load() {
@@ -122,7 +121,7 @@ func TestDownloadChunk_RetriesOnNonTimeoutError(t *testing.T) {
 	d := NewDownloader()
 	d.retryDelayMs = 10
 	var buf bytes.Buffer
-	if err := d.DownloadChunk(context.Background(), backend.URL, 0, 5, &buf); err != nil {
+	if err := d.DownloadChunk(t.Context(), backend.URL, 0, 5, &buf); err != nil {
 		t.Fatalf("DownloadChunk: %v", err)
 	}
 	if buf.String() != "hello" {
@@ -194,7 +193,7 @@ func TestDownloadChunk_HonorsHTTPProxyEnv(t *testing.T) {
 			// resolve it because the CONNECT tunnel above routes every request to
 			// `backend` regardless of the requested authority.
 			var buf bytes.Buffer
-			if err := d.DownloadChunk(context.Background(), "http://example.com/file", 0, 5, &buf); err != nil {
+			if err := d.DownloadChunk(t.Context(), "http://example.com/file", 0, 5, &buf); err != nil {
 				t.Fatalf("DownloadChunk via proxy: %v", err)
 			}
 			if !proxied.Load() {
