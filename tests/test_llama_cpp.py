@@ -135,6 +135,28 @@ def test_llm_prefix_cache(cached, device_map):
     )
 
 
+@pytest.mark.llm
+@pytest.mark.parametrize('device_map', ['cpu'])
+def test_llm_prefix_cache_fallback(geniex_session, device_map):
+    with geniex.AutoModelForCausalLM.from_pretrained(
+        'LiquidAI/LFM3-1.7B-GGUF',
+        precision='Q4_0',
+        device_map=device_map,
+    ) as llm:
+        prompts = [_chat_prompt(llm, content) for content in ('Say hello briefly.', 'Say goodbye briefly.', 'Hello.')]
+
+        def generate(prompt):
+            return llm.generate(prompt, max_new_tokens=8, temperature=GREEDY_TEMPERATURE, seed=LLM_QUALITY_SEED)
+
+        generate(prompts[0])
+        for prompt in prompts:
+            reused = generate(prompt)
+            llm.reset()
+            fresh = generate(prompt)
+            assert reused.text == fresh.text
+            assert reused.profile.prompt_tokens == fresh.profile.prompt_tokens > 1
+
+
 def _quality_misses(llm, budget: int) -> list[str]:
     misses = []
     for prompt, expected in LLM_QUALITY_PROMPTS:

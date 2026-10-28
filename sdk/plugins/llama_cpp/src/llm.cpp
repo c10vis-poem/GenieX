@@ -274,10 +274,7 @@ int32_t LlamaLlm::generate(const geniex_LlmGenerateInput* input, geniex_LlmGener
         // Embedding turns always fully redecode (see the "update past record"
         // comment near the end of this function), so start from a clean KV
         // cache rather than continuing from whatever a prior turn left behind.
-        llama_memory_seq_rm(mem, 0, 0, -1);
-        this->n_past        = 0;
-        this->n_past_global = 0;
-        this->past_prompt_tokens.clear();
+        this->reset();
     }
 
     // Encode the full prompt (from input_embd, input_ids, or prompt_utf8)
@@ -327,18 +324,16 @@ int32_t LlamaLlm::generate(const geniex_LlmGenerateInput* input, geniex_LlmGener
 
         if (match_len < (int)this->past_prompt_tokens.size()) {
             if (match_len < this->n_past_global - this->n_past) {
-                // match out of kvcache, need reset
-                llama_memory_seq_rm(mem, 0, 0, this->n_past);
-                this->n_past        = 0;
-                this->n_past_global = prompt_len > n_ctx - 4 ? n_ctx - 4 : 0;
-                GENIEX_LOG_INFO("prefix match: n_past_global rollback to: {}", this->n_past_global);
+                GENIEX_LOG_WARN("prefix match: matched prefix is outside the cache; resetting state");
+                this->reset();
+            } else if (!llama_memory_seq_rm(mem, 0, match_len, -1)) {
+                GENIEX_LOG_WARN("prefix match: rollback to token {} failed; resetting state", match_len);
+                this->reset();
             } else {
-                // match in kvcache, need rollback
-                llama_memory_seq_rm(mem, 0, match_len, -1);
                 this->n_past        = match_len;
                 this->n_past_global = match_len;
-                GENIEX_LOG_INFO("prefix match: n_past_global rollback to: {}", this->n_past_global);
             }
+            GENIEX_LOG_INFO("prefix match: n_past_global rollback to: {}", this->n_past_global);
             this->past_prompt_tokens.assign(prompt_ids.begin(), prompt_ids.begin() + this->n_past_global);
         }
     }
@@ -365,7 +360,10 @@ int32_t LlamaLlm::generate(const geniex_LlmGenerateInput* input, geniex_LlmGener
             return 0;
         }
 
-        llama_memory_seq_rm(mem, 0, n_keep, n_keep + n_discard);
+        if (!llama_memory_seq_rm(mem, 0, n_keep, n_keep + n_discard)) {
+            GENIEX_LOG_WARN("Context shifting: failed to discard {} tokens; keeping state", n_discard);
+            return 0;
+        }
         llama_memory_seq_add(mem, 0, n_keep + n_discard, this->n_past, -n_discard);
         this->n_past -= n_discard;
 
@@ -556,10 +554,7 @@ int32_t LlamaLlm::generate(const geniex_LlmGenerateInput* input, geniex_LlmGener
         // isn't representable as past_prompt_tokens, so the KV cache is dropped
         // entirely after an embedding turn: the next call (text, input_ids, or
         // another input_embd) always starts a full redecode from position 0.
-        llama_memory_seq_rm(mem, 0, 0, -1);
-        this->n_past        = 0;
-        this->n_past_global = 0;
-        this->past_prompt_tokens.clear();
+        this->reset();
     } else {
         this->n_past_global = prompt_len + generated_tokens.size();
         this->past_prompt_tokens.insert(this->past_prompt_tokens.end(), embd_inp.begin(), embd_inp.end());
