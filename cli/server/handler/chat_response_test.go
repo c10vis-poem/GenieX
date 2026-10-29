@@ -8,13 +8,28 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/openai/openai-go/v3"
 
 	geniex_sdk "github.com/qualcomm/GenieX/bindings/go"
 	"github.com/qualcomm/GenieX/cli/internal/thinkfsm"
+	"github.com/qualcomm/GenieX/cli/server/types"
 )
+
+func checkResponseMetadata(t *testing.T, body []byte, prefix, model string) types.ResponseMetadata {
+	t.Helper()
+	var meta types.ResponseMetadata
+	if err := json.Unmarshal(body, &meta); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	if !strings.HasPrefix(meta.ID, prefix+"-") || meta.Model != model || meta.Created <= 0 || meta.Created > now || now-meta.Created > 5 {
+		t.Fatalf("incomplete response metadata: %s", body)
+	}
+	return meta
+}
 
 type blockingBody struct {
 	Choices []struct {
