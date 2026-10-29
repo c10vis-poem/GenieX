@@ -155,7 +155,7 @@ curl http://127.0.0.1:18181/v1/chat/completions \
 
 ```kotlin
 dependencies {
-    implementation("com.qualcomm.qti:geniex-android:0.4.0")
+    implementation("com.qualcomm.qti:geniex-android:0.10.0")
 }
 ```
 

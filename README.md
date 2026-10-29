@@ -153,7 +153,7 @@ Point any OpenAI client at `http://127.0.0.1:18181/v1` — no code changes.
 
 ```kotlin
 dependencies {
-    implementation("com.qualcomm.qti:geniex-android:0.4.0")
+    implementation("com.qualcomm.qti:geniex-android:0.10.0")
 }
 ```
 
