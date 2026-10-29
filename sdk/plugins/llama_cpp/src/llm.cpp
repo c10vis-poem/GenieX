@@ -471,6 +471,7 @@ int32_t LlamaLlm::generate(const geniex_LlmGenerateInput* input, geniex_LlmGener
 
     profiler.prompt_end();
     profiler.update_prompt_tokens(prompt_len - this->n_past_global);
+    profiler.update_total_prompt_tokens(prompt_len);
     profiler.decode_start();
 
     // Process output

@@ -128,6 +128,8 @@ def test_llm_prefix_cache(cached, device_map):
     # Reusing the exact prompt must re-evaluate its last token for fresh logits.
     assert same[1].profile.prompt_tokens == 1
     assert same[2].profile.prompt_tokens == 1
+    # The reused prefix still counts toward the full prompt.
+    assert all(out.profile.total_prompt_tokens == prompt_tokens for out in same)
     first_tokens, second_tokens, third_tokens = (out.profile.prompt_tokens for out in rollback)
     assert first_tokens > second_tokens > third_tokens > 0, (
         'expected full prefill, partial rollback, then reuse of the second prompt prefix; '
@@ -275,6 +277,10 @@ def test_vlm_generate(cached, model, test_image, quality_image, device_map):
     assert out1.profile.prompt_tokens > 0
     assert isinstance(out2, geniex.GenerateOutput)
     assert out2.profile.prompt_tokens > 0
+    # Turn 2 reuses turn 1's prompt and reply, so only the increment is evaluated.
+    assert out2.profile.total_prompt_tokens == (
+        out1.profile.total_prompt_tokens + out1.profile.generated_tokens + out2.profile.prompt_tokens
+    )
 
 
 @pytest.mark.vlm
