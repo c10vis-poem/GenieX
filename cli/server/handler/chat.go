@@ -55,7 +55,7 @@ type ChatCompletionRequest struct {
 }
 
 func defaultChatCompletionRequest() ChatCompletionRequest {
-	// Prefill model-load knobs with server defaults. ShouldBindJSON overwrites
+	// Prefill model-load and think knobs with server defaults. ShouldBindJSON overwrites
 	// fields present in the body, including explicit empty strings and zeros.
 	cfg := config.Get()
 	return ChatCompletionRequest{
@@ -67,7 +67,7 @@ func defaultChatCompletionRequest() ChatCompletionRequest {
 		},
 		Stream: false,
 
-		EnableThink:       true,
+		EnableThink:       cfg.Think,
 		NCtx:              cfg.NCtx,
 		Ngl:               cfg.Ngl,
 		Compute:           cfg.Compute,
