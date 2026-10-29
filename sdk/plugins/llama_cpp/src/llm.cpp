@@ -980,6 +980,13 @@ int32_t LlamaLlm::setup_speculative(
         return GENIEX_ERROR_COMMON_MODEL_LOAD;
     }
 
+    // Probe the draft context like llama-server does. Must run after common_speculative_init, which
+    // changes the draft graph shape (MTP nextn embeddings); otherwise the first draft step pays the
+    // HTP graph rebuild (~2 s on gemma-4-26B) inside the decode window.
+    if (this->draft_ctx) {
+        common_context_can_seq_rm(this->draft_ctx);
+    }
+
     GENIEX_LOG_INFO("speculative decoding enabled: type={}, n_max={}", config.spec_type, this->spec_n_max);
     return GENIEX_SUCCESS;
 }
