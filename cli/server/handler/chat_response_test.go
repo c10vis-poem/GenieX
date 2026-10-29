@@ -18,6 +18,13 @@ import (
 	"github.com/qualcomm/GenieX/cli/server/types"
 )
 
+func TestProfile2UsageCachedTokens(t *testing.T) {
+	u := profile2Usage(geniex_sdk.ProfileData{PromptTokens: 1, TotalPromptTokens: 51, GeneratedTokens: 5})
+	if u.PromptTokens != 51 || u.PromptTokensDetails.CachedTokens != 50 || u.TotalTokens != 56 {
+		t.Errorf("usage=%+v", u)
+	}
+}
+
 func checkResponseMetadata(t *testing.T, body []byte, prefix, model string) types.ResponseMetadata {
 	t.Helper()
 	var meta types.ResponseMetadata

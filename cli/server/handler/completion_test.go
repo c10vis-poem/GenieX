@@ -128,7 +128,7 @@ func TestCompletionResponseProtocol(t *testing.T) {
 	for _, text := range []string{"hello", ""} {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		profile := geniex_sdk.ProfileData{PromptTokens: 3, GeneratedTokens: 2, StopReason: "length"}
+		profile := geniex_sdk.ProfileData{PromptTokens: 3, TotalPromptTokens: 3, GeneratedTokens: 2, StopReason: "length"}
 		writeCompletionResponse(c, text, profile, "test-model")
 		meta := checkResponseMetadata(t, w.Body.Bytes(), "cmpl", "test-model")
 		if seen[meta.ID] {
@@ -170,7 +170,7 @@ func TestCompletionSSEProtocol(t *testing.T) {
 				ch <- token
 			}
 			close(ch)
-			profile := geniex_sdk.ProfileData{PromptTokens: 3, GeneratedTokens: 2, StopReason: "eos"}
+			profile := geniex_sdk.ProfileData{PromptTokens: 3, TotalPromptTokens: 3, GeneratedTokens: 2, StopReason: "eos"}
 			if tc.err == geniex_sdk.ErrLlmTokenizationContextLength {
 				profile.StopReason = "length"
 			}

@@ -273,6 +273,8 @@ finish_reason: stop
 usage: CompletionUsage(completion_tokens=58, prompt_tokens=19, total_tokens=77, ...)
 ```
 
+`usage.prompt_tokens` is the full prompt length, including tokens reused from the KV cache. `usage.prompt_tokens_details.cached_tokens` is the reused part (0 on a cache miss), and `timings.prompt_n` is what was actually evaluated. QAIRT models do not report reuse yet, so their `prompt_tokens` counts evaluated tokens only.
+
 ### **Separating reasoning (reasoning_content)**
 
 By default a thinking model puts its chain-of-thought in the OpenAI-standard `message.reasoning_content` field, leaving `content` clean. Pass `reasoning_format="none"` in the request body only when you need the raw reasoning inline in `message.content`.
