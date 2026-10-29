@@ -178,6 +178,8 @@ geniex serve
 
 Thinking models put chain-of-thought in `message.reasoning_content` by default. Set the per-request `reasoning_format` field to `none` to keep it inline in `message.content` — see [Separating reasoning](/en/run/cli/local-server#separating-reasoning-reasoning_content).
 
+Chat requests think by default. Start the server with `--think=false` (or `GENIEX_THINK=false`) to turn thinking off for requests that omit `enable_think`; the request field always takes precedence.
+
 ## **Logging**
 
 `--log` is a global flag controlling the CLI's log output. It is equivalent to the `GENIEX_LOG` environment variable and takes precedence over it when both are set.

@@ -113,6 +113,27 @@ func TestChatBindingUsesServerModel(t *testing.T) {
 	}
 }
 
+func TestChatBindingUsesServerThinkDefault(t *testing.T) {
+	t.Setenv("GENIEX_THINK", "")
+	const omitted = `{"messages":[{"role":"user","content":"Hello"}]}`
+	_, req := bindRequest(t, omitted)
+	if !req.EnableThink {
+		t.Error("enable_think should default to true")
+	}
+
+	viper.Set("think", false)
+	t.Cleanup(func() { viper.Set("think", nil) })
+
+	_, req = bindRequest(t, omitted)
+	if req.EnableThink {
+		t.Error("omitted enable_think should use the server default")
+	}
+	_, req = bindRequest(t, `{"messages":[{"role":"user","content":"Hello"}],"enable_think":true}`)
+	if !req.EnableThink {
+		t.Error("request enable_think should override the server default")
+	}
+}
+
 func TestServeModelDefaultRequests(t *testing.T) {
 	t.Setenv("GENIEX_MODEL", "")
 	viper.Set("model", "local/default:Q4_0")
